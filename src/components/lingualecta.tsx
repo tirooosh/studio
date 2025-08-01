@@ -22,7 +22,6 @@ import {
 import * as pdfjsLib from 'pdfjs-dist';
 
 import type { Book, Bookmark as BookmarkType } from '@/lib/types';
-import { mockBooks } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { useToast } from "@/hooks/use-toast";
 import { Button } from '@/components/ui/button';
@@ -61,6 +60,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { mockBooks } from '@/lib/data';
 
 // Setup worker for pdf.js
 if (typeof window !== 'undefined') {
@@ -179,9 +179,14 @@ function ReaderView({
         window.speechSynthesis.onvoiceschanged = loadVoices;
     }
 
-    return () => {
-      window.speechSynthesis.onvoiceschanged = null;
+    const cleanup = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        if (speechSynthesis.speaking) {
+            speechSynthesis.cancel();
+        }
     };
+
+    return cleanup;
   }, []);
   
   const stopSpeech = () => {
@@ -189,7 +194,6 @@ function ReaderView({
       speechSynthesis.cancel();
     }
     setPlaybackState('stopped');
-    setCurrentSentence({start: 0, end: 0});
     utteranceRef.current = null;
   };
 
@@ -215,6 +219,7 @@ function ReaderView({
   
   const playSpeech = (startSentence?: number, startCharInSentence?: number) => {
     if (playbackState === 'playing' || !book) return;
+    if(speechSynthesis.speaking) speechSynthesis.cancel();
 
     if (speechSynthesis.paused && playbackState === 'paused') {
       speechSynthesis.resume();
@@ -248,6 +253,11 @@ function ReaderView({
   };
 
   const setupUtterance = (sentenceIdx: number, startCharInSentence: number = 0) => {
+    if (sentenceIdx >= sentences.length) {
+        setPlaybackState('stopped');
+        return;
+    }
+
     let textToSpeak = "";
     if(startCharInSentence > 0 && sentences[sentenceIdx]) {
         textToSpeak = sentences[sentenceIdx].substring(startCharInSentence);
@@ -255,10 +265,11 @@ function ReaderView({
         textToSpeak = sentences[sentenceIdx];
     }
     
-    if (!textToSpeak) {
+    if (!textToSpeak || !textToSpeak.trim()) {
         if (sentenceIdx < sentences.length - 1) {
-            setCurrentSentenceIndex(prevIndex => prevIndex + 1);
-            setupUtterance(sentenceIdx + 1, 0);
+            const nextIndex = sentenceIdx + 1;
+            setCurrentSentenceIndex(nextIndex);
+            setupUtterance(nextIndex, 0);
         } else {
             setPlaybackState('stopped');
         }
@@ -278,6 +289,7 @@ function ReaderView({
     
     utterance.onstart = () => {
         setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
+        setPlaybackState('playing');
     }
 
     utterance.onboundary = (event) => {
@@ -289,20 +301,17 @@ function ReaderView({
     };
     
     utterance.onend = () => {
-      // Always get the latest sentence index from state before proceeding
-      setCurrentSentenceIndex(prevIndex => {
-        const nextSentenceIndex = prevIndex + 1;
-        if (nextSentenceIndex < sentences.length) {
+      const nextSentenceIndex = sentenceIdx + 1;
+      if (nextSentenceIndex < sentences.length) {
+          setCurrentSentenceIndex(nextSentenceIndex);
           setupUtterance(nextSentenceIndex);
-        } else {
+      } else {
           setPlaybackState('stopped');
           setCurrentSentence({start: 0, end: 0});
           setProgress(100);
           if (book) setCurrentCharIndex(book.content.length);
           utteranceRef.current = null;
-        }
-        return nextSentenceIndex;
-      });
+      }
     };
 
     utterance.onerror = (event) => {
@@ -316,7 +325,6 @@ function ReaderView({
     
     utteranceRef.current = utterance;
     speechSynthesis.speak(utterance);
-    setPlaybackState('playing');
   };
 
   useEffect(() => {
@@ -373,35 +381,36 @@ function ReaderView({
 
     setCurrentSentence({start: 0, end: 0});
     
-    return () => {
+    const cleanup = () => {
       stopSpeech();
     };
+    return cleanup;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book]);
 
   useEffect(() => {
-    if (playbackState === 'playing') {
-        const voice = voices.find(v => v.name === selectedVoice);
-        if(utteranceRef.current) {
-            if(voice) utteranceRef.current.voice = voice;
-            utteranceRef.current.rate = playbackSpeed;
-            utteranceRef.current.pitch = pitch;
-        }
+    if (playbackState !== 'playing') return;
 
-        const currentGlobalChar = currentCharIndex;
-        stopSpeech();
-        
-        let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > currentGlobalChar) - 1;
-        if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
-        if (sentenceIdx < 0) sentenceIdx = 0;
-        
-        const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
-        const offsetInSentence = currentGlobalChar - sentenceStartChar;
-
-        setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
+    const voice = voices.find(v => v.name === selectedVoice);
+    if(utteranceRef.current) {
+      if(voice) utteranceRef.current.voice = voice;
+      utteranceRef.current.rate = playbackSpeed;
+      utteranceRef.current.pitch = pitch;
     }
+
+    const currentGlobalChar = currentCharIndex;
+    stopSpeech();
+    
+    let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > currentGlobalChar) - 1;
+    if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
+    if (sentenceIdx < 0) sentenceIdx = 0;
+    
+    const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
+    const offsetInSentence = currentGlobalChar - sentenceStartChar;
+
+    setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playbackSpeed, pitch, selectedVoice, voices]);
+  }, [playbackSpeed, pitch, selectedVoice]);
   
   useEffect(() => {
     if (!book || !('mediaSession' in navigator)) return;
@@ -414,18 +423,23 @@ function ReaderView({
     
     navigator.mediaSession.playbackState = playbackState === 'playing' ? 'playing' : 'paused';
 
-    navigator.mediaSession.setActionHandler('play', () => playSpeech());
-    navigator.mediaSession.setActionHandler('pause', pauseSpeech);
-    navigator.mediaSession.setActionHandler('seekbackward', () => rewindSpeech());
-    navigator.mediaSession.setActionHandler('seekforward', () => fastForwardSpeech());
-    navigator.mediaSession.setActionHandler('seekto', (details) => {
-        if(details.seekTime && book && book.content.length > 0) {
-            const totalDuration = book.content.length / 10; // Approximate duration
-            const seekChar = Math.floor(details.seekTime / totalDuration * book.content.length);
-            jumpTo(seekChar);
-        }
-    });
+    const playHandler = () => playSpeech();
+    const pauseHandler = () => pauseSpeech();
+    const rewindHandler = () => rewindSpeech();
+    const ffHandler = () => fastForwardSpeech();
+    const seekToHandler = (details: MediaSessionSeekToAction) => {
+      if(details.seekTime && book && book.content.length > 0) {
+          const totalDuration = book.content.length / 10; // Approximate duration
+          const seekChar = Math.floor(details.seekTime / totalDuration * book.content.length);
+          jumpTo(seekChar);
+      }
+    };
 
+    navigator.mediaSession.setActionHandler('play', playHandler);
+    navigator.mediaSession.setActionHandler('pause', pauseHandler);
+    navigator.mediaSession.setActionHandler('seekbackward', rewindHandler);
+    navigator.mediaSession.setActionHandler('seekforward', ffHandler);
+    navigator.mediaSession.setActionHandler('seekto', seekToHandler);
 
     return () => {
       navigator.mediaSession.setActionHandler('play', null);
@@ -434,8 +448,7 @@ function ReaderView({
       navigator.mediaSession.setActionHandler('seekforward', null);
       navigator.mediaSession.setActionHandler('seekto', null);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book, playbackState, currentCharIndex, sentences]);
+  }, [book, playbackState, currentSentenceIndex, sentences, playbackSpeed, pitch, selectedVoice]);
 
   const addBookmark = () => {
     if (!book) return;
@@ -741,11 +754,11 @@ export function LinguaLecta() {
       if (storedBooks) {
         setBooks(JSON.parse(storedBooks));
       } else {
-        setBooks(mockBooks);
+        setBooks(mockBooks());
       }
     } catch (error) {
       console.error("Could not load books from local storage", error);
-      setBooks(mockBooks);
+      setBooks(mockBooks());
       toast({
           title: "Error loading books",
           description: "Could not load your library. Using default books.",
@@ -809,7 +822,7 @@ export function LinguaLecta() {
     if (file) {
       const fileType = (file.name.split('.').pop()?.toUpperCase() as Book['fileType']) || 'TXT';
 
-      const createBook = (content: string, coverImage: string = 'https://placehold.co/300x400') => {
+      const createBook = (content: string, coverImage: string) => {
         if (!content) {
           toast({
             title: 'File Read Error',

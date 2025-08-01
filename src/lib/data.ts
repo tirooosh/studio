@@ -2,6 +2,10 @@ import type { Book } from './types';
 
 // Helper to generate a simple data URI cover
 const createFallbackCover = (title: string): string => {
+    if (typeof document === 'undefined') {
+        // Return a placeholder or empty string if not in a browser environment
+        return '';
+    }
     const canvas = document.createElement('canvas');
     canvas.width = 300;
     canvas.height = 400;
@@ -36,7 +40,7 @@ const createFallbackCover = (title: string): string => {
 }
 
 
-export const mockBooks: Book[] = [
+export const mockBooks = (): Book[] => [
   {
     id: '1',
     title: 'The Great Gatsby',
