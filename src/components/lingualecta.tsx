@@ -62,7 +62,9 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { textToSpeech, TextToSpeechOutput } from '@/ai/flows/tts-flow';
+import { textToSpeech } from '@/ai/flows/tts-flow';
+import type { TextToSpeechOutput } from '@/ai/schemas/tts-schemas';
+
 
 // Setup worker for pdf.js
 if (typeof window !== 'undefined') {
