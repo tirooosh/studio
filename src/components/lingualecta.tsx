@@ -511,11 +511,7 @@ function ReaderView({
     <div className="flex flex-col h-full bg-background">
        <header className="p-4 md:px-6 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10 h-24">
         <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={onOpenLibrary} className="md:hidden h-14 w-14">
-                <Menu className="h-7 w-7"/>
-                <span className="sr-only">Open Library</span>
-            </Button>
-            <Button variant="ghost" onClick={onOpenLibrary} className="hidden md:flex text-base p-4">
+            <Button variant="ghost" onClick={onOpenLibrary} className="flex text-base p-4">
                 <ChevronLeft className="h-6 w-6 mr-1" />
                 Back to Library
             </Button>
@@ -672,8 +668,8 @@ function ReaderView({
 }
 
 const LibrarySkeleton = () => (
-  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-2 gap-4 p-4">
-    {Array.from({ length: 4 }).map((_, i) => (
+  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 p-6">
+    {Array.from({ length: 12 }).map((_, i) => (
       <Card key={i}>
         <CardHeader className="p-0">
           <Skeleton className="aspect-[3/4] w-full" />
@@ -720,8 +716,8 @@ const AppSettings = ({ isDarkMode, toggleDarkMode }: { isDarkMode: boolean; togg
 };
 
 
-const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick, isLoading, isDarkMode, toggleDarkMode }: { books: Book[], onSelectBook: (book: Book) => void, onRename: (book: Book) => void, onDelete: (book: Book) => void, onImportClick: () => void, isLoading: boolean, isDarkMode: boolean, toggleDarkMode: (checked: boolean) => void }) => (
-  <>
+const LibraryView = ({ books, onSelectBook, onRename, onDelete, onImportClick, isLoading, isDarkMode, toggleDarkMode }: { books: Book[], onSelectBook: (book: Book) => void, onRename: (book: Book) => void, onDelete: (book: Book) => void, onImportClick: () => void, isLoading: boolean, isDarkMode: boolean, toggleDarkMode: (checked: boolean) => void }) => (
+  <div className="h-dvh flex flex-col">
     <header className="p-4 border-b flex items-center justify-between flex-shrink-0">
       <div className="flex items-center gap-2">
         <Logo className="h-8 w-8" />
@@ -736,7 +732,7 @@ const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick
     </header>
     <ScrollArea className="flex-grow">
        {isLoading ? <LibrarySkeleton /> : books.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-2 gap-4 p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 p-6">
             {books.map(book => (
             <BookCard
                 key={book.id}
@@ -748,14 +744,14 @@ const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick
             ))}
         </div>
         ) : (
-        <div className="flex flex-col items-center justify-center h-full text-center p-8">
+        <div className="flex flex-col items-center justify-center h-full text-center p-8 min-h-[calc(100vh-80px)]">
             <BookOpen className="h-16 w-16 text-muted-foreground/50 mb-4" />
-            <h3 className="font-semibold">Your library is empty</h3>
+            <h3 className="font-semibold text-lg">Your library is empty</h3>
             <p className="text-sm text-muted-foreground">Import a book to get started.</p>
         </div>
         )}
     </ScrollArea>
-  </>
+  </div>
 );
 
 
@@ -767,7 +763,6 @@ export function LinguaLecta() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
-  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
@@ -961,7 +956,6 @@ export function LinguaLecta() {
   
   const handleSelectBook = (book: Book) => {
     setSelectedBook(book);
-    setIsLibraryOpen(false);
   }
 
   const handleUpdateBook = (updatedBook: Book) => {
@@ -1002,61 +996,30 @@ export function LinguaLecta() {
 
 
   return (
-    <div className="flex h-dvh bg-background font-body text-foreground">
-       <Sheet open={isLibraryOpen} onOpenChange={setIsLibraryOpen}>
-        <SheetContent side="left" className="p-0 w-full sm:max-w-xs flex flex-col md:hidden">
-            <LibraryContent
-                books={books}
-                onSelectBook={handleSelectBook}
-                onRename={handleRenameRequest}
-                onDelete={handleDeleteRequest}
-                onImportClick={() => {
-                    fileInputRef.current?.click();
-                    setIsLibraryOpen(false);
-                }}
-                isLoading={isLoading}
-                isDarkMode={isDarkMode}
-                toggleDarkMode={toggleDarkMode}
-            />
-        </SheetContent>
-      </Sheet>
-
-      <aside className={cn(
-        "w-1/3 max-w-sm xl:max-w-md flex-col border-r h-full flex-shrink-0",
-        "transition-all duration-300 ease-in-out",
-        "hidden md:flex",
-        selectedBook ? "md:-ml-[33.333333%] md:opacity-0" : "md:ml-0 md:opacity-100"
-      )}>
-         <LibraryContent
-            books={books}
-            onSelectBook={handleSelectBook}
-            onRename={handleRenameRequest}
-            onDelete={handleDeleteRequest}
-            onImportClick={() => fileInputRef.current?.click()}
-            isLoading={isLoading}
-            isDarkMode={isDarkMode}
-            toggleDarkMode={toggleDarkMode}
-        />
-        <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.txt"/>
-      </aside>
-
-      <main className={cn(
-        "flex-1 h-full transition-all duration-300 ease-in-out",
-        selectedBook ? "w-full" : "md:w-2/3"
-        )}>
+    <div className="bg-background font-body text-foreground">
+      {selectedBook ? (
         <ReaderView 
           book={selectedBook} 
-          onOpenLibrary={() => {
-            setSelectedBook(null);
-            if(!selectedBook){
-                setIsLibraryOpen(true);
-            }
-          }} 
+          onOpenLibrary={() => setSelectedBook(null)}
           onUpdateBook={handleUpdateBook} 
           isDarkMode={isDarkMode}
           toggleDarkMode={toggleDarkMode}
         />
-      </main>
+      ) : (
+        <>
+            <LibraryView
+                books={books}
+                onSelectBook={handleSelectBook}
+                onRename={handleRenameRequest}
+                onDelete={handleDeleteRequest}
+                onImportClick={() => fileInputRef.current?.click()}
+                isLoading={isLoading}
+                isDarkMode={isDarkMode}
+                toggleDarkMode={toggleDarkMode}
+            />
+            <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.txt"/>
+        </>
+      )}
 
       <AlertDialog open={!!dialogState.book && dialogState.type === 'rename'} onOpenChange={() => setDialogState({ ...dialogState, book: null })}>
         <AlertDialogContent>
@@ -1094,6 +1057,3 @@ export function LinguaLecta() {
     </div>
   );
 }
-
-    
-
