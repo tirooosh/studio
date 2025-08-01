@@ -506,7 +506,7 @@ function ReaderView({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="content">
-              <article ref={contentRef} className="prose prose-lg dark:prose-invert max-w-none text-foreground/90 leading-relaxed">
+              <article ref={contentRef} className="prose prose-2xl dark:prose-invert max-w-none text-foreground/90 leading-relaxed">
                 <SpokenText />
               </article>
             </TabsContent>
@@ -550,14 +550,14 @@ function ReaderView({
       <div className="p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0">
         <div className="max-w-4xl mx-auto flex items-center gap-4">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="lg" onClick={rewindSpeech} aria-label="Rewind 10 seconds">
-              <Rewind />
+            <Button variant="ghost" size="lg" onClick={rewindSpeech} aria-label="Rewind 10 seconds" className="h-16 w-16">
+              <Rewind className="h-8 w-8" />
             </Button>
-            <Button size="lg" className="rounded-full w-20 h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-              {playbackState === 'playing' ? <Pause className="h-10 w-10" /> : <Play className="h-10 w-10" />}
+            <Button size="lg" className="rounded-full w-24 h-24" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
+              {playbackState === 'playing' ? <Pause className="h-12 w-12" /> : <Play className="h-12 w-12" />}
             </Button>
-            <Button variant="ghost" size="lg" onClick={fastForwardSpeech} aria-label="Fast Forward 10 seconds">
-              <FastForward />
+            <Button variant="ghost" size="lg" onClick={fastForwardSpeech} aria-label="Fast Forward 10 seconds" className="h-16 w-16">
+              <FastForward className="h-8 w-8" />
             </Button>
           </div>
           <div className="flex-grow flex items-center gap-4">
@@ -569,8 +569,8 @@ function ReaderView({
           </div>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="icon" className="h-12 w-12" aria-label="Playback Settings">
-                <Settings2 />
+              <Button variant="outline" size="icon" className="h-16 w-16" aria-label="Playback Settings">
+                <Settings2 className="h-8 w-8" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-80">
@@ -782,7 +782,7 @@ export function LinguaLecta() {
               const page = await pdf.getPage(i);
               const textContent = await page.getTextContent();
               const pageText = textContent.items.map(item => (item as any).str).join(' ');
-              fullText += pageText + '\n';
+              fullText += pageText + '\n\n';
             }
             createBook(fullText, coverImage);
           } catch (error) {
