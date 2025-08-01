@@ -17,6 +17,7 @@ import {
   Bookmark,
   Trash2,
   BookText,
+  ChevronLeft,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -274,7 +275,9 @@ function ReaderView({
     utterance.pitch = pitch;
 
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
-    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + sentences[sentenceIdx].length});
+    const currentSentenceText = sentences[sentenceIdx] || '';
+    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
+
     const charIndexOffset = startCharInSentence > 0 ? startCharInSentence : 0;
 
     utterance.onboundary = (event) => {
@@ -518,11 +521,17 @@ function ReaderView({
 
   return (
     <div className="flex flex-col h-full bg-background">
-       <header className="md:hidden p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10">
-        <Button variant="ghost" size="icon" onClick={onOpenLibrary}>
-            <Menu />
-            <span className="sr-only">Open Library</span>
-        </Button>
+       <header className="p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={onOpenLibrary} className="md:hidden">
+                <Menu />
+                <span className="sr-only">Open Library</span>
+            </Button>
+            <Button variant="ghost" onClick={onOpenLibrary} className="hidden md:flex">
+                <ChevronLeft />
+                Back to Library
+            </Button>
+        </div>
         <div className="text-center">
             <h2 className="font-semibold truncate max-w-[200px]">{book?.title}</h2>
         </div>
@@ -972,9 +981,9 @@ export function LinguaLecta() {
           onOpenLibrary={() => {
             if (selectedBook) {
               setSelectedBook(null);
-              setTimeout(() => setIsLibraryOpen(true), 300);
-            } else {
-               setIsLibraryOpen(true)
+            }
+            if(!selectedBook){
+                setIsLibraryOpen(true);
             }
           }} 
           onUpdateBook={handleUpdateBook} 
