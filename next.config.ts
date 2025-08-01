@@ -27,9 +27,15 @@ const copyDirSync = (src: string, dest: string) => {
 const pdfWorkerSrc = path.join(
   path.dirname(require.resolve('pdfjs-dist/package.json')),
   'build',
-  'pdf.worker.min.mjs'
+  'pdf.worker.mjs'
 );
-const pdfWorkerDest = path.join(process.cwd(), 'public', 'pdf.worker.min.mjs');
+const pdfWorkerDest = path.join(process.cwd(), 'public', 'pdf.worker.mjs');
+
+// Create public directory if it doesn't exist
+if (!existsSync(path.join(process.cwd(), 'public'))) {
+  mkdirSync(path.join(process.cwd(), 'public'));
+}
+
 if (!existsSync(pdfWorkerDest) || statSync(pdfWorkerSrc).mtimeMs > statSync(pdfWorkerDest).mtimeMs) {
   copyFileSync(pdfWorkerSrc, pdfWorkerDest);
 }
