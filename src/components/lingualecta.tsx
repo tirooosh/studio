@@ -480,13 +480,8 @@ function ReaderView({
                 return words.map((word, wIndex) => {
                   const wStart = wordCharCounter;
                   wordCharCounter += word.length;
-
-                  const sentenceForWord = sentenceCharStarts.current.findIndex(start => start > wStart) -1;
-                  const sentenceStartIndex = sentenceForWord >= 0 ? sentenceCharStarts.current[sentenceForWord] : 0;
-                  const sentence = sentences[sentenceForWord] || "";
-                  const sentenceEndIndex = sentenceStartIndex + sentence.length;
-
-                  const isSpoken = wStart >= currentSentence.start && wStart < sentenceEndIndex;
+                  
+                  const isSpoken = wStart >= currentSentence.start && wStart < currentSentence.end;
 
                   return (
                     <span
