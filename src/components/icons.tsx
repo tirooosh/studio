@@ -1,6 +1,6 @@
 "use client"
 
-import { Book, File as FileIcon, FileText, BookOpen } from "lucide-react"
+import { Book, File as FileIcon, FileText, BookOpen, BookText } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 

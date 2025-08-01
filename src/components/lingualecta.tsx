@@ -16,6 +16,7 @@ import {
   Menu,
   Bookmark,
   Trash2,
+  BookText,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -127,15 +128,15 @@ function ReaderView({
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string | undefined>(undefined);
   const [progress, setProgress] = useState(0);
-  const [currentWord, setCurrentWord] = useState({start: 0, end: 0});
+  const [currentSentence, setCurrentSentence] = useState({start: 0, end: 0});
   const [currentCharIndex, setCurrentCharIndex] = useState(0);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  const [textChunks, setTextChunks] = useState<string[]>([]);
-  const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
-  const chunkCharStarts = useRef<number[]>([]);
+  const [sentences, setSentences] = useState<string[]>([]);
+  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+  const sentenceCharStarts = useRef<number[]>([]);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -154,11 +155,13 @@ function ReaderView({
         setSelectedVoice(defaultVoice?.name);
       }
     };
+    
     // onvoiceschanged is not reliable, especially on first load.
     if(window.speechSynthesis.getVoices().length > 0) {
         loadVoices();
+    } else {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
     }
-    window.speechSynthesis.onvoiceschanged = loadVoices;
 
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
@@ -170,43 +173,37 @@ function ReaderView({
       speechSynthesis.cancel();
     }
     setPlaybackState('stopped');
-    setCurrentWord({start: 0, end: 0});
+    setCurrentSentence({start: 0, end: 0});
     utteranceRef.current = null;
   };
 
   const jumpTo = (charIndex: number) => {
-    if (!book || !textChunks.length) return;
+    if (!book || !sentences.length) return;
     
     stopSpeech();
     
     const clampedIndex = Math.max(0, Math.min(charIndex, book.content.length - 1));
     setCurrentCharIndex(clampedIndex);
     
-    let chunkIndex = chunkCharStarts.current.findIndex(start => start > clampedIndex) - 1;
-    if (chunkIndex < -1) chunkIndex = chunkCharStarts.current.length -1;
-    if (chunkIndex < 0) chunkIndex = 0;
+    let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > clampedIndex) - 1;
+    if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
+    if (sentenceIdx < 0) sentenceIdx = 0;
     
-    setCurrentChunkIndex(chunkIndex);
-    
-    const chunkStartChar = chunkCharStarts.current[chunkIndex];
-    const charOffsetInChunk = clampedIndex - chunkStartChar;
+    setCurrentSentenceIndex(sentenceIdx);
     
     // Timeout to ensure cancel() has time to process fully
-    setTimeout(() => playSpeech(chunkIndex, charOffsetInChunk), 100);
+    setTimeout(() => playSpeech(sentenceIdx), 100);
   }
   
-  const playSpeech = (startChunk?: number, startCharInChunk?: number) => {
-    if (playbackState === 'playing') return;
+  const playSpeech = (startSentence?: number) => {
+    if (playbackState === 'playing' || !book) return;
 
     if (speechSynthesis.paused && playbackState === 'paused') {
       speechSynthesis.resume();
       setPlaybackState('playing');
     } else {
-      if (book) {
-        const chunkIdx = startChunk ?? currentChunkIndex;
-        const charIdxInChunk = startCharInChunk ?? 0;
-        setupUtterance(chunkIdx, charIdxInChunk);
-      }
+        const sentenceIdx = startSentence ?? currentSentenceIndex;
+        setupUtterance(sentenceIdx);
     }
   };
 
@@ -216,11 +213,12 @@ function ReaderView({
   };
 
   const rewindSpeech = () => {
-    jumpTo(currentCharIndex - 250); // Rewind ~15s
+    const targetIndex = currentCharIndex - 100 > 0 ? currentCharIndex - 100 : 0;
+    jumpTo(targetIndex);
   };
   
   const fastForwardSpeech = () => {
-    jumpTo(currentCharIndex + 250);
+    jumpTo(currentCharIndex + 100);
   }
 
   const handlePlayPauseClick = () => {
@@ -231,52 +229,38 @@ function ReaderView({
     }
   };
 
-  const setupUtterance = (chunkIndex: number, startCharInChunk: number = 0) => {
-    const chunk = textChunks[chunkIndex];
-    if (!chunk) {
+  const setupUtterance = (sentenceIdx: number) => {
+    const sentence = sentences[sentenceIdx];
+    if (!sentence) {
         setPlaybackState('stopped');
         return;
     };
-    const contentToSpeak = chunk.substring(startCharInChunk);
-    if (!contentToSpeak) {
-        // move to next chunk if current is empty
-        if (chunkIndex < textChunks.length - 1) {
-            setCurrentChunkIndex(chunkIndex + 1);
-            setupUtterance(chunkIndex + 1);
-        } else {
-            setPlaybackState('stopped');
-        }
-        return;
-    }
 
-    const utterance = new SpeechSynthesisUtterance(contentToSpeak);
+    const utterance = new SpeechSynthesisUtterance(sentence);
     const voice = voices.find(v => v.name === selectedVoice);
     if (voice) utterance.voice = voice;
     utterance.rate = playbackSpeed;
     utterance.pitch = pitch;
 
-    const chunkStartChar = chunkCharStarts.current[chunkIndex] || 0;
-    const utteranceStartChar = chunkStartChar + startCharInChunk;
+    const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
+    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + sentence.length});
 
     utterance.onboundary = (event) => {
-      const globalCharIndex = utteranceStartChar + event.charIndex;
-      const globalCharLength = event.charLength || (utterance.text.substring(event.charIndex).split(/\s|[,.?!;:]/)[0] || "").length;
-      
+      const globalCharIndex = sentenceStartChar + event.charIndex;
       setCurrentCharIndex(globalCharIndex);
-      setCurrentWord({start: globalCharIndex, end: globalCharIndex + globalCharLength});
       if (book && book.content.length > 0) {
         setProgress((globalCharIndex / book.content.length) * 100);
       }
     };
     
     utterance.onend = () => {
-      const nextChunkIndex = chunkIndex + 1;
-      if (nextChunkIndex < textChunks.length) {
-        setCurrentChunkIndex(nextChunkIndex);
-        setupUtterance(nextChunkIndex);
+      const nextSentenceIndex = sentenceIdx + 1;
+      if (nextSentenceIndex < sentences.length) {
+        setCurrentSentenceIndex(nextSentenceIndex);
+        setupUtterance(nextSentenceIndex);
       } else {
         setPlaybackState('stopped');
-        setCurrentWord({start: 0, end: 0});
+        setCurrentSentence({start: 0, end: 0});
         setProgress(100);
         if(book) setCurrentCharIndex(book.content.length);
         utteranceRef.current = null;
@@ -285,7 +269,9 @@ function ReaderView({
 
     utterance.onerror = (event) => {
         console.error("Speech Synthesis Error", event.error);
-        toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
+        if (event.error !== 'interrupted' && event.error !== 'canceled') {
+          toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
+        }
         setPlaybackState('stopped');
     };
     
@@ -295,45 +281,41 @@ function ReaderView({
   };
 
   useEffect(() => {
-    if (contentRef.current && currentWord.end > 0) {
-      const highlightElement = contentRef.current.querySelector(`[data-char-start='${currentWord.start}']`);
+    if (contentRef.current && currentSentence.end > 0) {
+      const highlightElement = contentRef.current.querySelector('.sentence-highlight');
       if (highlightElement) {
         highlightElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
-  }, [currentWord]);
+  }, [currentSentence]);
   
   useEffect(() => {
     if (!book) {
       stopSpeech();
       setProgress(0);
       setCurrentCharIndex(0);
-      setTextChunks([]);
-      chunkCharStarts.current = [];
+      setSentences([]);
+      sentenceCharStarts.current = [];
       return;
     };
 
     stopSpeech();
     
-    const chunks = book.content.split(/\n\n+/).filter(p => p.trim().length > 0);
-    setTextChunks(chunks);
+    const contentSentences = book.content.match(/[^.!?]+[.!?]*/g) || [book.content];
+    setSentences(contentSentences);
 
     let charCount = 0;
-    const starts: number[] = [];
-    book.content.split(/\n\n+/).forEach(p => {
-        if(p.trim().length > 0) {
-            starts.push(charCount);
-            charCount += p.length;
-        } else {
-            charCount += p.length;
-        }
-    })
-    chunkCharStarts.current = starts;
+    const starts = contentSentences.map(s => {
+        const start = charCount;
+        charCount += s.length;
+        return start;
+    });
+    sentenceCharStarts.current = starts;
     
     setProgress(0);
     setCurrentCharIndex(0);
-    setCurrentChunkIndex(0);
-    setCurrentWord({start: 0, end: 0});
+    setCurrentSentenceIndex(0);
+    setCurrentSentence({start: 0, end: 0});
     
     return () => {
       stopSpeech();
@@ -351,15 +333,12 @@ function ReaderView({
         if(playbackState === 'playing') {
             const currentGlobalChar = currentCharIndex;
             stopSpeech();
-            // We need to find which chunk and what character offset we are at.
-            let chunkIndex = chunkCharStarts.current.findIndex(start => start > currentGlobalChar) - 1;
-            if (chunkIndex < -1) chunkIndex = chunkCharStarts.current.length - 1;
-            if (chunkIndex < 0) chunkIndex = 0;
             
-            const chunkStartChar = chunkCharStarts.current[chunkIndex];
-            const charOffsetInChunk = currentGlobalChar - chunkStartChar;
+            let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > currentGlobalChar) - 1;
+            if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
+            if (sentenceIdx < 0) sentenceIdx = 0;
             
-            setTimeout(() => playSpeech(chunkIndex, charOffsetInChunk), 100);
+            setTimeout(() => playSpeech(sentenceIdx), 100);
         }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -382,7 +361,8 @@ function ReaderView({
     navigator.mediaSession.setActionHandler('seekforward', () => fastForwardSpeech());
     navigator.mediaSession.setActionHandler('seekto', (details) => {
         if(details.seekTime && book && book.content.length > 0) {
-            const seekChar = Math.floor((details.seekTime / book.content.length) * book.content.length);
+            const totalDuration = book.content.length / 10; // Approximate duration
+            const seekChar = Math.floor(details.seekTime / totalDuration * book.content.length);
             jumpTo(seekChar);
         }
     });
@@ -396,7 +376,7 @@ function ReaderView({
       navigator.mediaSession.setActionHandler('seekto', null);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book, playbackState, currentCharIndex, textChunks]);
+  }, [book, playbackState, currentCharIndex, sentences]);
 
   const addBookmark = () => {
     if (!book) return;
@@ -424,41 +404,51 @@ function ReaderView({
     if (!book) return null;
 
     let charCounter = 0;
-    // Split by words and capture whitespace
-    const parts = book.content.split(/(\s+)/);
+    
+    // Split by paragraphs
+    const paragraphs = book.content.split(/\n+/).filter(p => p.trim().length > 0);
 
     return (
-      <p>
-        {parts.map((part, index) => {
-          const start = charCounter;
-          charCounter += part.length;
-          
-          if (/\s+/.test(part)) {
-            return <span key={index}>{part}</span>;
-          }
+      <>
+        {paragraphs.map((paragraph, pIndex) => {
+          const pStart = charCounter;
+          charCounter += paragraph.length + 1; // account for newline
 
-          const isSpoken = start >= currentWord.start && start < currentWord.end;
-          
           return (
-            <span
-              key={index}
-              data-char-start={start}
-              className={cn({
-                'bg-accent/30': isSpoken,
-              })}
-            >
-              {part}
-            </span>
+            <p key={pIndex} className="mb-4">
+              {(() => {
+                let sentenceCharCounter = pStart;
+                const sentencesInParagraph = paragraph.match(/[^.!?]+[.!?]*/g) || [paragraph];
+                
+                return sentencesInParagraph.map((sentence, sIndex) => {
+                  const sStart = sentenceCharCounter;
+                  sentenceCharCounter += sentence.length;
+
+                  const isSpoken = sStart >= currentSentence.start && sStart < currentSentence.end;
+
+                  return (
+                    <span
+                      key={sIndex}
+                      className={cn({
+                        'bg-accent/30 rounded sentence-highlight': isSpoken,
+                      })}
+                    >
+                      {sentence}
+                    </span>
+                  );
+                });
+              })()}
+            </p>
           );
         })}
-      </p>
+      </>
     );
   };
 
   if (!book) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-8">
-        <BookOpen className="h-24 w-24 text-muted-foreground/50 mb-6" />
+        <BookText className="h-24 w-24 text-muted-foreground/50 mb-6" />
         <h2 className="font-headline text-2xl font-bold">Welcome to LinguaLecta</h2>
         <p className="text-muted-foreground mt-2 max-w-md">
           Select a book from your library to start reading, or import a new file to begin your audio journey.
@@ -468,7 +458,7 @@ function ReaderView({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-background">
        <header className="md:hidden p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10">
         <Button variant="ghost" size="icon" onClick={onOpenLibrary}>
             <Menu />
@@ -516,7 +506,7 @@ function ReaderView({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="content">
-              <article ref={contentRef} className="prose prose-lg dark:prose-invert max-w-none text-foreground/90">
+              <article ref={contentRef} className="prose prose-lg dark:prose-invert max-w-none text-foreground/90 leading-relaxed">
                 <SpokenText />
               </article>
             </TabsContent>
@@ -559,14 +549,14 @@ function ReaderView({
       </ScrollArea>
       <div className="p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0">
         <div className="max-w-4xl mx-auto flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={rewindSpeech} aria-label="Rewind">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="lg" onClick={rewindSpeech} aria-label="Rewind 10 seconds">
               <Rewind />
             </Button>
-            <Button size="lg" className="rounded-full w-16 h-16" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-              {playbackState === 'playing' ? <Pause className="h-8 w-8" /> : <Play className="h-8 w-8" />}
+            <Button size="lg" className="rounded-full w-20 h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
+              {playbackState === 'playing' ? <Pause className="h-10 w-10" /> : <Play className="h-10 w-10" />}
             </Button>
-            <Button variant="ghost" size="icon" onClick={fastForwardSpeech} aria-label="Fast Forward">
+            <Button variant="ghost" size="lg" onClick={fastForwardSpeech} aria-label="Fast Forward 10 seconds">
               <FastForward />
             </Button>
           </div>
@@ -579,7 +569,7 @@ function ReaderView({
           </div>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="Playback Settings">
+              <Button variant="outline" size="icon" className="h-12 w-12" aria-label="Playback Settings">
                 <Settings2 />
               </Button>
             </PopoverTrigger>
@@ -723,13 +713,33 @@ export function LinguaLecta() {
       }
     }
   }, [books, isLoading, toast]);
+  
+  const generatePdfCover = async (pdf: pdfjsLib.PDFDocumentProxy): Promise<string> => {
+    try {
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 1 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      if (context) {
+        await page.render({ canvasContext: context, viewport: viewport }).promise;
+        return canvas.toDataURL();
+      }
+    } catch (error) {
+      console.error('Failed to generate PDF cover:', error);
+    }
+    return 'https://placehold.co/300x400';
+  };
+
 
   const handleFileImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const fileType = (file.name.split('.').pop()?.toUpperCase() as Book['fileType']) || 'TXT';
 
-      const createBook = (content: string) => {
+      const createBook = (content: string, coverImage: string = 'https://placehold.co/300x400') => {
         if (!content) {
           toast({
             title: 'File Read Error',
@@ -743,9 +753,9 @@ export function LinguaLecta() {
           id: new Date().toISOString(),
           title: file.name.replace(/\.[^/.]+$/, ''),
           author: 'Unknown Author',
-          coverImage: 'https://placehold.co/300x400',
+          coverImage,
           fileType,
-          content: content,
+          content: content.replace(/(\r\n|\n|\r)/gm, "\n").replace(/\n\n+/g, '\n'),
           bookmarks: [],
         };
 
@@ -764,14 +774,17 @@ export function LinguaLecta() {
             if (!e.target?.result) throw new Error("File reading failed");
             const loadingTask = pdfjsLib.getDocument(new Uint8Array(e.target.result as ArrayBuffer));
             const pdf = await loadingTask.promise;
+            
+            const coverImage = await generatePdfCover(pdf);
+
             let fullText = '';
             for (let i = 1; i <= pdf.numPages; i++) {
               const page = await pdf.getPage(i);
               const textContent = await page.getTextContent();
               const pageText = textContent.items.map(item => (item as any).str).join(' ');
-              fullText += pageText + '\n\n';
+              fullText += pageText + '\n';
             }
-            createBook(fullText);
+            createBook(fullText, coverImage);
           } catch (error) {
             console.error('Error parsing PDF:', error);
             toast({
@@ -853,7 +866,7 @@ export function LinguaLecta() {
   return (
     <div className="flex h-dvh bg-background font-body text-foreground">
        <Sheet open={isLibraryOpen} onOpenChange={setIsLibraryOpen}>
-        <SheetContent side="left" className="p-0 w-full sm:max-w-md flex flex-col md:hidden">
+        <SheetContent side="left" className="p-0 w-full sm:max-w-xs flex flex-col md:hidden">
             <LibraryContent
                 books={books}
                 onSelectBook={handleSelectBook}
@@ -868,7 +881,12 @@ export function LinguaLecta() {
         </SheetContent>
       </Sheet>
 
-      <aside className="w-1/3 max-w-sm xl:max-w-md hidden md:flex flex-col border-r h-full">
+      <aside className={cn(
+        "w-1/3 max-w-sm xl:max-w-md flex-col border-r h-full flex-shrink-0",
+        "transition-all duration-300 ease-in-out",
+        "hidden md:flex",
+        selectedBook ? "md:-ml-[33.333333%] md:opacity-0" : "md:ml-0 md:opacity-100"
+      )}>
          <LibraryContent
             books={books}
             onSelectBook={handleSelectBook}
@@ -877,11 +895,25 @@ export function LinguaLecta() {
             onImportClick={() => fileInputRef.current?.click()}
             isLoading={isLoading}
         />
-        <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.epub,.mobi,.docx,.txt"/>
+        <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.txt"/>
       </aside>
 
-      <main className="flex-1 h-full">
-        <ReaderView book={selectedBook} onOpenLibrary={() => setIsLibraryOpen(true)} onUpdateBook={handleUpdateBook} />
+      <main className={cn(
+        "flex-1 h-full transition-all duration-300 ease-in-out",
+        selectedBook ? "w-full" : "md:w-2/3"
+        )}>
+        <ReaderView 
+          book={selectedBook} 
+          onOpenLibrary={() => {
+            if (selectedBook) {
+              setSelectedBook(null);
+              setTimeout(() => setIsLibraryOpen(true), 300);
+            } else {
+               setIsLibraryOpen(true)
+            }
+          }} 
+          onUpdateBook={handleUpdateBook} 
+        />
       </main>
 
       <AlertDialog open={!!dialogState.book && dialogState.type === 'rename'} onOpenChange={() => setDialogState({ ...dialogState, book: null })}>
