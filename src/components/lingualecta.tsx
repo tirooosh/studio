@@ -207,6 +207,7 @@ function ReaderView({
     stopSpeech();
     
     const clampedIndex = Math.max(0, Math.min(charIndex, book.content.length - 1));
+    setCurrentCharIndex(clampedIndex);
     
     let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > clampedIndex) - 1;
     if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
