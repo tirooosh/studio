@@ -160,22 +160,14 @@ function ReaderView({
         setVoices(availableVoices);
 
         const englishVoices = availableVoices.filter(v => v.lang.startsWith('en'));
-        const hebrewVoice = availableVoices.find(v => v.lang === 'he-IL');
-
+        
         // Prefer a high-quality, calming voice if available
         const calmingVoice = availableVoices.find(v => v.name === 'Google UK English Male') || 
-                             availableVoices.find(v => v.name.includes('David')) ||
                              availableVoices.find(v => v.name.includes('Zira')) ||
                              englishVoices.find(v => v.name.toLowerCase().includes('male'));
 
-        const englishVoice = englishVoices[0];
+        let defaultVoice = calmingVoice || englishVoices[0] || availableVoices[0];
         
-        let defaultVoice;
-        if (book && /[\u0590-\u05FF]/.test(book.content)) { // Check for Hebrew characters
-            defaultVoice = hebrewVoice || englishVoice || availableVoices[0];
-        } else {
-            defaultVoice = calmingVoice || englishVoice || availableVoices[0];
-        }
         setSelectedVoice(defaultVoice?.name);
       }
     };
@@ -190,7 +182,7 @@ function ReaderView({
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
     };
-  }, [book]);
+  }, []);
   
   const stopSpeech = () => {
     if (speechSynthesis.speaking) {
@@ -264,7 +256,12 @@ function ReaderView({
     }
     
     if (!textToSpeak) {
-        setPlaybackState('stopped');
+        if (sentenceIdx < sentences.length - 1) {
+            setCurrentSentenceIndex(prevIndex => prevIndex + 1);
+            setupUtterance(sentenceIdx + 1, 0);
+        } else {
+            setPlaybackState('stopped');
+        }
         return;
     };
 
@@ -276,9 +273,12 @@ function ReaderView({
 
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
     const currentSentenceText = sentences[sentenceIdx] || '';
-    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
-
+    
     const charIndexOffset = startCharInSentence > 0 ? startCharInSentence : 0;
+    
+    utterance.onstart = () => {
+        setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
+    }
 
     utterance.onboundary = (event) => {
       const globalCharIndex = sentenceStartChar + charIndexOffset + event.charIndex;
@@ -335,7 +335,7 @@ function ReaderView({
         onUpdateBook(updatedBook);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCharIndex, book, playbackState]);
+  }, [currentCharIndex]);
   
   useEffect(() => {
     if (!book) {
@@ -349,7 +349,7 @@ function ReaderView({
 
     stopSpeech();
     
-    const contentSentences = book.content.match(/[^.!?]+[.!?]*/g) || [book.content];
+    const contentSentences = book.content.match(/[^.!?\n]+[.!?\n]*/g) || [book.content];
     setSentences(contentSentences);
 
     let charCount = 0;
@@ -403,7 +403,7 @@ function ReaderView({
         }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playbackSpeed, pitch, selectedVoice, voices]);
+  }, [playbackSpeed, pitch, selectedVoice]);
   
   useEffect(() => {
     if (!book || !('mediaSession' in navigator)) return;
@@ -466,41 +466,25 @@ function ReaderView({
 
     let charCounter = 0;
     
-    const paragraphs = book.content.split(/\n+/).filter(p => p.trim().length > 0);
-
     return (
       <>
-        {paragraphs.map((paragraph, pIndex) => {
-          const pStart = charCounter;
-          charCounter += paragraph.length + 1; // account for newline
+        {sentences.map((sentence, sIndex) => {
+          const sStart = charCounter;
+          charCounter += sentence.length;
+
+          const isSpoken = sStart >= currentSentence.start && sStart < currentSentence.end;
 
           return (
-            <p key={pIndex} className="mb-8">
-              {(() => {
-                let wordCharCounter = pStart;
-                const words = paragraph.split(/(\s+)/);
-                
-                return words.map((word, wIndex) => {
-                  const wStart = wordCharCounter;
-                  wordCharCounter += word.length;
-                  
-                  const isSpoken = wStart >= currentSentence.start && wStart < currentSentence.end;
-
-                  return (
-                    <span
-                      key={wIndex}
-                      onClick={() => jumpTo(wStart)}
-                      className={cn({
-                        'bg-accent/30 rounded sentence-highlight cursor-pointer': isSpoken,
-                        'cursor-pointer hover:bg-accent/10': !isSpoken && word.trim().length > 0,
-                      })}
-                    >
-                      {word}
-                    </span>
-                  );
-                });
-              })()}
-            </p>
+            <span
+              key={sIndex}
+              onClick={() => jumpTo(sStart)}
+              className={cn({
+                'bg-accent/30 rounded sentence-highlight cursor-pointer': isSpoken,
+                'cursor-pointer hover:bg-accent/10': !isSpoken && sentence.trim().length > 0,
+              })}
+            >
+              {sentence}
+            </span>
           );
         })}
       </>
@@ -858,7 +842,7 @@ export function LinguaLecta() {
               const pageText = textContent.items.map(item => (item as any).str).join(' ');
               fullText += pageText + '\n\n';
             }
-            createBook(fullText, coverImage);
+            createBook(fullText.replace(/\n\s*\n/g, '\n'), coverImage);
           } catch (error) {
             console.error('Error parsing PDF:', error);
             toast({
