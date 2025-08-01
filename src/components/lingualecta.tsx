@@ -286,17 +286,20 @@ function ReaderView({
     };
     
     utterance.onend = () => {
-      const nextSentenceIndex = sentenceIdx + 1;
-      if (nextSentenceIndex < sentences.length) {
-        setCurrentSentenceIndex(nextSentenceIndex);
-        setupUtterance(nextSentenceIndex);
-      } else {
-        setPlaybackState('stopped');
-        setCurrentSentence({start: 0, end: 0});
-        setProgress(100);
-        if(book) setCurrentCharIndex(book.content.length);
-        utteranceRef.current = null;
-      }
+      // Always get the latest sentence index from state before proceeding
+      setCurrentSentenceIndex(prevIndex => {
+        const nextSentenceIndex = prevIndex + 1;
+        if (nextSentenceIndex < sentences.length) {
+          setupUtterance(nextSentenceIndex);
+        } else {
+          setPlaybackState('stopped');
+          setCurrentSentence({start: 0, end: 0});
+          setProgress(100);
+          if (book) setCurrentCharIndex(book.content.length);
+          utteranceRef.current = null;
+        }
+        return nextSentenceIndex;
+      });
     };
 
     utterance.onerror = (event) => {
@@ -483,7 +486,7 @@ function ReaderView({
                   const sentence = sentences[sentenceForWord] || "";
                   const sentenceEndIndex = sentenceStartIndex + sentence.length;
 
-                  const isSpoken = wStart >= currentSentence.start && wStart < currentSentence.end;
+                  const isSpoken = wStart >= currentSentence.start && wStart < sentenceEndIndex;
 
                   return (
                     <span
