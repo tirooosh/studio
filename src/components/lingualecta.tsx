@@ -137,20 +137,41 @@ function ReaderView({
   const [sentences, setSentences] = useState<string[]>([]);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const sentenceCharStarts = useRef<number[]>([]);
+  const [isCoverLandscape, setIsCoverLandscape] = useState(false);
+
+  useEffect(() => {
+    if (book?.coverImage) {
+        const img = new window.Image();
+        img.src = book.coverImage;
+        img.onload = () => {
+            setIsCoverLandscape(img.width > img.height);
+        };
+    } else {
+        setIsCoverLandscape(false);
+    }
+  }, [book?.coverImage]);
+
 
   useEffect(() => {
     const loadVoices = () => {
       const availableVoices = window.speechSynthesis.getVoices();
       if (availableVoices.length > 0) {
-        setVoices(availableVoices);
-        const hebrewVoice = availableVoices.find(v => v.lang === 'he-IL');
-        const englishVoice = availableVoices.find(v => v.lang.startsWith('en'));
+        const englishVoices = availableVoices.filter(v => v.lang.startsWith('en'));
+        
+        // Add a custom voice if available, checking for existence first
+        const customVoice = { name: 'David', lang: 'en-US' } as SpeechSynthesisVoice;
+        const allVoices = [...availableVoices, customVoice];
+        setVoices(allVoices);
+
+        const hebrewVoice = allVoices.find(v => v.lang === 'he-IL');
+        const calmingVoice = allVoices.find(v => v.name === 'David');
+        const englishVoice = englishVoices[0];
         
         let defaultVoice;
         if (book && /[\u0590-\u05FF]/.test(book.content)) { // Check for Hebrew characters
-            defaultVoice = hebrewVoice || englishVoice || availableVoices[0];
+            defaultVoice = hebrewVoice || englishVoice || allVoices[0];
         } else {
-            defaultVoice = englishVoice || availableVoices[0];
+            defaultVoice = calmingVoice || englishVoice || allVoices[0];
         }
         setSelectedVoice(defaultVoice?.name);
       }
@@ -183,19 +204,21 @@ function ReaderView({
     stopSpeech();
     
     const clampedIndex = Math.max(0, Math.min(charIndex, book.content.length - 1));
-    setCurrentCharIndex(clampedIndex);
     
     let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > clampedIndex) - 1;
     if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
     if (sentenceIdx < 0) sentenceIdx = 0;
     
+    const sentenceStartChar = sentenceCharStarts.current[sentenceIdx];
+    const offsetInSentence = clampedIndex - sentenceStartChar;
+
     setCurrentSentenceIndex(sentenceIdx);
     
     // Timeout to ensure cancel() has time to process fully
-    setTimeout(() => playSpeech(sentenceIdx), 100);
+    setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
   }
   
-  const playSpeech = (startSentence?: number) => {
+  const playSpeech = (startSentence?: number, startCharInSentence?: number) => {
     if (playbackState === 'playing' || !book) return;
 
     if (speechSynthesis.paused && playbackState === 'paused') {
@@ -203,7 +226,7 @@ function ReaderView({
       setPlaybackState('playing');
     } else {
         const sentenceIdx = startSentence ?? currentSentenceIndex;
-        setupUtterance(sentenceIdx);
+        setupUtterance(sentenceIdx, startCharInSentence);
     }
   };
 
@@ -229,24 +252,31 @@ function ReaderView({
     }
   };
 
-  const setupUtterance = (sentenceIdx: number) => {
-    const sentence = sentences[sentenceIdx];
-    if (!sentence) {
+  const setupUtterance = (sentenceIdx: number, startCharInSentence: number = 0) => {
+    let textToSpeak = "";
+    if(startCharInSentence > 0 && sentences[sentenceIdx]) {
+        textToSpeak = sentences[sentenceIdx].substring(startCharInSentence);
+    } else {
+        textToSpeak = sentences[sentenceIdx];
+    }
+    
+    if (!textToSpeak) {
         setPlaybackState('stopped');
         return;
     };
 
-    const utterance = new SpeechSynthesisUtterance(sentence);
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     const voice = voices.find(v => v.name === selectedVoice);
     if (voice) utterance.voice = voice;
     utterance.rate = playbackSpeed;
     utterance.pitch = pitch;
 
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
-    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + sentence.length});
+    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + sentences[sentenceIdx].length});
+    const charIndexOffset = startCharInSentence > 0 ? startCharInSentence : 0;
 
     utterance.onboundary = (event) => {
-      const globalCharIndex = sentenceStartChar + event.charIndex;
+      const globalCharIndex = sentenceStartChar + charIndexOffset + event.charIndex;
       setCurrentCharIndex(globalCharIndex);
       if (book && book.content.length > 0) {
         setProgress((globalCharIndex / book.content.length) * 100);
@@ -288,6 +318,15 @@ function ReaderView({
       }
     }
   }, [currentSentence]);
+
+  // Save progress
+  useEffect(() => {
+    if(book && playbackState !== 'stopped') {
+        const updatedBook = { ...book, lastPosition: currentCharIndex };
+        onUpdateBook(updatedBook);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCharIndex, book, playbackState]);
   
   useEffect(() => {
     if (!book) {
@@ -312,9 +351,19 @@ function ReaderView({
     });
     sentenceCharStarts.current = starts;
     
-    setProgress(0);
-    setCurrentCharIndex(0);
-    setCurrentSentenceIndex(0);
+    const startChar = book.lastPosition || 0;
+    setCurrentCharIndex(startChar);
+    if(book.content.length > 0) {
+        setProgress((startChar / book.content.length) * 100);
+    } else {
+        setProgress(0);
+    }
+    
+    let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > startChar) - 1;
+    if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
+    if (sentenceIdx < 0) sentenceIdx = 0;
+    setCurrentSentenceIndex(sentenceIdx);
+
     setCurrentSentence({start: 0, end: 0});
     
     return () => {
@@ -338,7 +387,10 @@ function ReaderView({
             if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
             if (sentenceIdx < 0) sentenceIdx = 0;
             
-            setTimeout(() => playSpeech(sentenceIdx), 100);
+            const sentenceStartChar = sentenceCharStarts.current[sentenceIdx];
+            const offsetInSentence = currentGlobalChar - sentenceStartChar;
+
+            setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
         }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -405,7 +457,6 @@ function ReaderView({
 
     let charCounter = 0;
     
-    // Split by paragraphs
     const paragraphs = book.content.split(/\n+/).filter(p => p.trim().length > 0);
 
     return (
@@ -415,25 +466,32 @@ function ReaderView({
           charCounter += paragraph.length + 1; // account for newline
 
           return (
-            <p key={pIndex} className="mb-4">
+            <p key={pIndex} className="mb-8">
               {(() => {
-                let sentenceCharCounter = pStart;
-                const sentencesInParagraph = paragraph.match(/[^.!?]+[.!?]*/g) || [paragraph];
+                let wordCharCounter = pStart;
+                const words = paragraph.split(/(\s+)/);
                 
-                return sentencesInParagraph.map((sentence, sIndex) => {
-                  const sStart = sentenceCharCounter;
-                  sentenceCharCounter += sentence.length;
+                return words.map((word, wIndex) => {
+                  const wStart = wordCharCounter;
+                  wordCharCounter += word.length;
 
-                  const isSpoken = sStart >= currentSentence.start && sStart < currentSentence.end;
+                  const sentenceForWord = sentenceCharStarts.current.findIndex(start => start > wStart) -1;
+                  const sentenceStartIndex = sentenceForWord >= 0 ? sentenceCharStarts.current[sentenceForWord] : 0;
+                  const sentence = sentences[sentenceForWord] || "";
+                  const sentenceEndIndex = sentenceStartIndex + sentence.length;
+
+                  const isSpoken = wStart >= currentSentence.start && wStart < currentSentence.end;
 
                   return (
                     <span
-                      key={sIndex}
+                      key={wIndex}
+                      onClick={() => jumpTo(wStart)}
                       className={cn({
-                        'bg-accent/30 rounded sentence-highlight': isSpoken,
+                        'bg-accent/30 rounded sentence-highlight cursor-pointer': isSpoken,
+                        'cursor-pointer hover:bg-accent/10': !isSpoken && word.trim().length > 0,
                       })}
                     >
-                      {sentence}
+                      {word}
                     </span>
                   );
                 });
@@ -474,19 +532,25 @@ function ReaderView({
       </header>
 
       <ScrollArea className="flex-grow">
-        <div className="max-w-4xl mx-auto p-6 lg:p-8">
-          <div className="flex flex-col md:flex-row gap-8 items-start mb-8">
+        <div className="max-w-6xl mx-auto p-6 lg:p-12">
+          <div className={cn(
+              "flex flex-col md:flex-row gap-8 lg:gap-12 items-start mb-8",
+              {"md:flex-row-reverse": isCoverLandscape}
+          )}>
             <Image
               src={book.coverImage}
               alt={`Cover of ${book.title}`}
-              width={200}
-              height={300}
-              className="rounded-lg shadow-lg aspect-[3/4] object-cover"
+              width={isCoverLandscape ? 400 : 300}
+              height={isCoverLandscape ? 300 : 400}
+              className={cn(
+                "rounded-lg shadow-2xl object-cover mx-auto",
+                isCoverLandscape ? "aspect-video" : "aspect-[3/4]"
+              )}
               data-ai-hint="book cover"
             />
             <div className="pt-4 flex-1">
-              <h1 className="font-headline text-3xl lg:text-4xl font-bold">{book.title}</h1>
-              <p className="text-xl text-muted-foreground mt-2">{book.author}</p>
+              <h1 className="font-headline text-4xl lg:text-5xl font-bold">{book.title}</h1>
+              <p className="text-2xl text-muted-foreground mt-2">{book.author}</p>
               <div className="flex items-center justify-between">
                 <FileTypeIcon fileType={book.fileType} className="mt-4" />
                 <Button variant="outline" onClick={addBookmark} className="hidden md:flex">
@@ -506,7 +570,7 @@ function ReaderView({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="content">
-              <article ref={contentRef} className="prose prose-2xl dark:prose-invert max-w-none text-foreground/90 leading-relaxed">
+              <article ref={contentRef} className="prose prose-4xl dark:prose-invert max-w-none text-foreground/90 leading-relaxed">
                 <SpokenText />
               </article>
             </TabsContent>
@@ -548,20 +612,20 @@ function ReaderView({
         </div>
       </ScrollArea>
       <div className="p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0">
-        <div className="max-w-4xl mx-auto flex items-center gap-4">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="lg" onClick={rewindSpeech} aria-label="Rewind 10 seconds" className="h-16 w-16">
-              <Rewind className="h-8 w-8" />
+        <div className="max-w-4xl mx-auto flex items-center gap-6">
+          <div className="flex items-center gap-6">
+            <Button variant="ghost" size="lg" onClick={rewindSpeech} aria-label="Rewind 10 seconds" className="h-24 w-24">
+              <Rewind className="h-12 w-12" />
             </Button>
-            <Button size="lg" className="rounded-full w-24 h-24" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-              {playbackState === 'playing' ? <Pause className="h-12 w-12" /> : <Play className="h-12 w-12" />}
+            <Button size="lg" className="rounded-full w-32 h-32" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
+              {playbackState === 'playing' ? <Pause className="h-16 w-16" /> : <Play className="h-16 w-16" />}
             </Button>
-            <Button variant="ghost" size="lg" onClick={fastForwardSpeech} aria-label="Fast Forward 10 seconds" className="h-16 w-16">
-              <FastForward className="h-8 w-8" />
+            <Button variant="ghost" size="lg" onClick={fastForwardSpeech} aria-label="Fast Forward 10 seconds" className="h-24 w-24">
+              <FastForward className="h-12 w-12" />
             </Button>
           </div>
           <div className="flex-grow flex items-center gap-4">
-              <Image src={book.coverImage} alt={book.title} width={48} height={48} className="rounded-md aspect-square object-cover" data-ai-hint="book cover" />
+              <Image src={book.coverImage} alt={book.title} width={56} height={56} className="rounded-md aspect-square object-cover" data-ai-hint="book cover" />
               <div className="w-full">
                   <p className="font-semibold truncate">{book.title}</p>
                   <Progress value={progress} className="h-2 mt-1" />
@@ -569,8 +633,8 @@ function ReaderView({
           </div>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="icon" className="h-16 w-16" aria-label="Playback Settings">
-                <Settings2 className="h-8 w-8" />
+              <Button variant="outline" size="icon" className="h-24 w-24" aria-label="Playback Settings">
+                <Settings2 className="h-12 w-12" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-80">

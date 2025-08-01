@@ -81,6 +81,14 @@ export default {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
       },
+       typography: (theme: any) => ({
+        "4xl": {
+          css: {
+            fontSize: '2.25rem',
+            lineHeight: '2.5rem',
+          },
+        },
+      }),
     },
   },
   plugins: [require('tailwindcss-animate'), require("@tailwindcss/typography")],
