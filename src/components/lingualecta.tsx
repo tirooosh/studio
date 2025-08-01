@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useRef, useEffect, type ChangeEvent } from 'react';
@@ -449,6 +448,7 @@ function ReaderView({
       navigator.mediaSession.setActionHandler('seekforward', null);
       navigator.mediaSession.setActionHandler('seekto', null);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book, playbackState, currentSentenceIndex, sentences, playbackSpeed, pitch, selectedVoice]);
 
   const addBookmark = () => {
@@ -463,6 +463,7 @@ function ReaderView({
     const updatedBookmarks = [...(book.bookmarks || []), newBookmark];
     onUpdateBook({ ...book, bookmarks: updatedBookmarks });
     toast({ title: "Bookmark added!" });
+    jumpTo(newBookmark.charIndex);
   };
 
   const deleteBookmark = (bookmarkId: string) => {
@@ -518,10 +519,10 @@ function ReaderView({
 
   return (
     <div className="flex flex-col h-full bg-background">
-       <header className="p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10">
+       <header className="p-4 md:p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10 h-20 md:h-auto">
         <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={onOpenLibrary} className="md:hidden">
-                <Menu />
+            <Button variant="ghost" size="icon" onClick={onOpenLibrary} className="md:hidden h-12 w-12">
+                <Menu className="h-6 w-6"/>
                 <span className="sr-only">Open Library</span>
             </Button>
             <Button variant="ghost" onClick={onOpenLibrary} className="hidden md:flex">
@@ -532,8 +533,8 @@ function ReaderView({
         <div className="text-center">
             <h2 className="font-semibold truncate max-w-[200px]">{book?.title}</h2>
         </div>
-        <Button variant="ghost" size="icon" onClick={addBookmark}>
-            <Bookmark />
+        <Button variant="ghost" size="icon" onClick={addBookmark} className="h-12 w-12">
+            <Bookmark className="h-6 w-6"/>
             <span className="sr-only">Add Bookmark</span>
         </Button>
       </header>
@@ -618,17 +619,17 @@ function ReaderView({
 
         </div>
       </ScrollArea>
-      <div className="p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0">
-        <div className="max-w-4xl mx-auto flex items-center gap-6">
-          <div className="flex items-center gap-6">
-            <Button variant="ghost" size="lg" onClick={rewindSpeech} aria-label="Rewind 10 seconds" className="h-24 w-24">
-              <Rewind className="h-12 w-12" />
+      <div className="p-2 md:p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0">
+        <div className="max-w-4xl mx-auto flex items-center gap-2 md:gap-6">
+          <div className="flex items-center gap-1 md:gap-6">
+            <Button variant="ghost" size="lg" onClick={rewindSpeech} aria-label="Rewind 10 seconds" className="h-16 w-16 md:h-24 md:w-24">
+              <Rewind className="h-8 w-8 md:h-12 md:w-12" />
             </Button>
-            <Button size="lg" className="rounded-full w-32 h-32" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-              {playbackState === 'playing' ? <Pause className="h-16 w-16" /> : <Play className="h-16 w-16" />}
+            <Button size="lg" className="rounded-full w-20 h-20 md:w-32 md:h-32" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
+              {playbackState === 'playing' ? <Pause className="h-10 w-10 md:h-16 md:w-16" /> : <Play className="h-10 w-10 md:h-16 md:w-16" />}
             </Button>
-            <Button variant="ghost" size="lg" onClick={fastForwardSpeech} aria-label="Fast Forward 10 seconds" className="h-24 w-24">
-              <FastForward className="h-12 w-12" />
+            <Button variant="ghost" size="lg" onClick={fastForwardSpeech} aria-label="Fast Forward 10 seconds" className="h-16 w-16 md:h-24 md:w-24">
+              <FastForward className="h-8 w-8 md:h-12 md:w-12" />
             </Button>
           </div>
           <div className="flex-grow flex items-center gap-4">
@@ -640,8 +641,8 @@ function ReaderView({
           </div>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="icon" className="h-24 w-24" aria-label="Playback Settings">
-                <Settings2 className="h-12 w-12" />
+              <Button variant="outline" size="icon" className="h-16 w-16 md:h-24 md:w-24" aria-label="Playback Settings">
+                <Settings2 className="h-8 w-8 md:h-12 md:w-12" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-80">
@@ -1055,3 +1056,5 @@ export function LinguaLecta() {
     </div>
   );
 }
+
+    
