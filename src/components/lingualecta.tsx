@@ -241,15 +241,6 @@ function ReaderView({
     setPlaybackState('paused');
   };
 
-  const rewindSpeech = () => {
-    const targetIndex = currentCharIndex - 100 > 0 ? currentCharIndex - 100 : 0;
-    jumpTo(targetIndex);
-  };
-  
-  const fastForwardSpeech = () => {
-    jumpTo(currentCharIndex + 100);
-  }
-
   const handlePlayPauseClick = () => {
     if (playbackState === 'playing') {
       pauseSpeech();
@@ -343,17 +334,16 @@ function ReaderView({
   }, [currentSentence]);
   
   useEffect(() => {
-    if (!book) {
+    const cleanup = () => {
       stopSpeech();
+    };
+
+    if (!book) {
       setProgress(0);
       setCurrentCharIndex(0);
       setSentences([]);
       sentenceCharStarts.current = [];
-      return;
-    };
-
-    const cleanup = () => {
-      stopSpeech();
+      return cleanup;
     };
     
     const contentSentences = book.content.match(/[^.!?\n]+[.!?\n]*/g) || [book.content];
@@ -389,7 +379,6 @@ function ReaderView({
 
     setCurrentSentence({start: 0, end: 0});
     
-    stopSpeech();
     return cleanup;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book]);
@@ -415,8 +404,14 @@ function ReaderView({
 
     const playHandler = () => playSpeech();
     const pauseHandler = () => pauseSpeech();
-    const rewindHandler = () => rewindSpeech();
-    const ffHandler = () => fastForwardSpeech();
+    const rewindSpeech = () => {
+        const targetIndex = currentCharIndex - 100 > 0 ? currentCharIndex - 100 : 0;
+        jumpTo(targetIndex);
+    };
+    const ffSpeech = () => {
+        jumpTo(currentCharIndex + 100);
+    }
+
     const seekToHandler = (details: MediaSessionSeekToAction) => {
       if(details.seekTime && book && book.content.length > 0) {
           const totalDuration = book.content.length / 10; // Approximate duration
@@ -427,8 +422,8 @@ function ReaderView({
 
     navigator.mediaSession.setActionHandler('play', playHandler);
     navigator.mediaSession.setActionHandler('pause', pauseHandler);
-    navigator.mediaSession.setActionHandler('seekbackward', rewindHandler);
-    navigator.mediaSession.setActionHandler('seekforward', ffHandler);
+    navigator.mediaSession.setActionHandler('seekbackward', rewindSpeech);
+    navigator.mediaSession.setActionHandler('seekforward', ffSpeech);
     navigator.mediaSession.setActionHandler('seekto', seekToHandler);
 
     return () => {
@@ -508,27 +503,27 @@ function ReaderView({
   }
 
   return (
-    <div className="flex flex-col h-full bg-background">
-       <header className="p-4 md:px-6 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10 h-24">
+    <div className="flex flex-col h-dvh bg-background">
+       <header className="p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10 h-20 md:h-24">
         <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onOpenLibrary} className="flex text-base p-4">
+            <Button variant="ghost" onClick={onOpenLibrary} className="flex items-center text-base p-2 -ml-2 md:p-4">
                 <ChevronLeft className="h-6 w-6 mr-1" />
-                Back to Library
+                <span className="hidden md:inline">Back to Library</span>
             </Button>
         </div>
         <div className="text-center">
-            <h2 className="font-semibold truncate max-w-[200px] md:max-w-md text-lg">{book?.title}</h2>
+            <h2 className="font-semibold truncate max-w-[200px] md:max-w-md text-base md:text-lg">{book?.title}</h2>
         </div>
-        <Button variant="ghost" size="icon" onClick={addBookmark} className="h-14 w-14">
-            <Bookmark className="h-7 w-7"/>
+        <Button variant="ghost" size="icon" onClick={addBookmark} className="h-12 w-12 md:h-14 md:w-14">
+            <Bookmark className="h-6 w-6 md:h-7 md:w-7"/>
             <span className="sr-only">Add Bookmark</span>
         </Button>
       </header>
 
       <ScrollArea className="flex-grow">
-        <div className="max-w-6xl mx-auto p-6 lg:p-12">
+        <div className="max-w-4xl mx-auto p-4 md:p-6 lg:p-12">
           <div className={cn(
-              "flex flex-col md:flex-row gap-8 lg:gap-12 items-start mb-8",
+              "flex flex-col md:flex-row gap-6 md:gap-8 lg:gap-12 items-start mb-8",
               {"md:flex-row-reverse": isCoverLandscape}
           )}>
             <Image
@@ -537,24 +532,24 @@ function ReaderView({
               width={isCoverLandscape ? 400 : 300}
               height={isCoverLandscape ? 300 : 400}
               className={cn(
-                "rounded-lg shadow-2xl object-cover mx-auto",
+                "rounded-lg shadow-2xl object-cover mx-auto w-48 md:w-64 flex-shrink-0",
                 isCoverLandscape ? "aspect-video" : "aspect-[3/4]"
               )}
               data-ai-hint="book cover"
             />
-            <div className="pt-4 flex-1">
-              <h1 className="font-headline text-4xl lg:text-5xl font-bold">{book.title}</h1>
-              <p className="text-2xl text-muted-foreground mt-2">{book.author}</p>
-              <div className="flex items-center justify-between">
-                <FileTypeIcon fileType={book.fileType} className="mt-4" />
+            <div className="pt-2 md:pt-4 flex-1">
+              <h1 className="font-headline text-2xl md:text-4xl lg:text-5xl font-bold">{book.title}</h1>
+              <p className="text-lg md:text-2xl text-muted-foreground mt-2">{book.author}</p>
+              <div className="flex items-center justify-between mt-4">
+                <FileTypeIcon fileType={book.fileType} />
                 <Button variant="outline" onClick={addBookmark} className="hidden md:flex">
-                    <Bookmark className="mr-2"/> Add Bookmark
+                    <Bookmark className="mr-2 h-4 w-4"/> Add Bookmark
                 </Button>
               </div>
             </div>
           </div>
           
-          <Separator className="my-8" />
+          <Separator className="my-6 md:my-8" />
           
           <Tabs defaultValue="content">
             <TabsList className="mb-4">
@@ -564,7 +559,7 @@ function ReaderView({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="content">
-              <article ref={contentRef} className="prose prose-4xl dark:prose-invert max-w-none text-foreground/90 leading-relaxed">
+              <article ref={contentRef} className="prose dark:prose-invert max-w-none text-foreground/90 leading-relaxed text-base md:text-lg">
                 <SpokenText />
               </article>
             </TabsContent>
@@ -606,22 +601,19 @@ function ReaderView({
         </div>
       </ScrollArea>
       <div className="p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0 h-28 flex flex-col justify-center">
-        <div className="w-full flex items-center justify-center mb-2">
+        <div className="w-full flex items-center justify-center mb-2 px-4">
             <Progress value={progress} className="h-2 w-full max-w-lg" />
         </div>
-        <div className="max-w-lg mx-auto flex items-center justify-between gap-6 w-full">
-            <Button size="lg" className="rounded-full w-20 h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-              {playbackState === 'playing' ? <Pause className="h-10 w-10" /> : <Play className="h-10 w-10" />}
+        <div className="max-w-lg mx-auto flex items-center justify-around gap-2 w-full">
+            <div className="w-16 md:w-20"></div>
+            <Button size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
+              {playbackState === 'playing' ? <Pause className="h-8 w-8 md:h-10 md:w-10" /> : <Play className="h-8 w-8 md:h-10 md:w-10" />}
             </Button>
-            <Button variant="ghost" size="icon" onClick={addBookmark} className="h-16 w-16">
-                <Bookmark className="h-8 w-8"/>
-                <span className="sr-only">Add Bookmark</span>
-            </Button>
-
+            
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-16 w-16" aria-label="Playback Settings">
-                <Settings2 className="h-8 w-8" />
+              <Button variant="ghost" size="icon" className="h-16 w-16 md:h-20 md:w-20" aria-label="Playback Settings">
+                <Settings2 className="h-7 w-7 md:h-8 md:w-8" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-80 p-6">
@@ -634,11 +626,11 @@ function ReaderView({
                 </div>
                 <div className="grid gap-4 text-base">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="dark-mode-switch">Dark Mode</Label>
+                    <Label htmlFor="dark-mode-switch" className="text-base">Dark Mode</Label>
                     <Switch id="dark-mode-switch" checked={isDarkMode} onCheckedChange={toggleDarkMode} />
                   </div>
                   <Separator />
-                  <Label htmlFor="voice-select">Voice</Label>
+                  <Label htmlFor="voice-select" className="text-base">Voice</Label>
                   <Select value={selectedVoice} onValueChange={setSelectedVoice}>
                     <SelectTrigger id="voice-select" className="text-base">
                       <SelectValue placeholder="Select a voice" />
@@ -650,11 +642,11 @@ function ReaderView({
                     </SelectContent>
                   </Select>
                   <div className="grid gap-2 mt-2">
-                    <Label htmlFor="speed-slider">Speed ({playbackSpeed.toFixed(1)}x)</Label>
+                    <Label htmlFor="speed-slider" className="text-base">Speed ({playbackSpeed.toFixed(1)}x)</Label>
                     <Slider id="speed-slider" min={0.5} max={3} step={0.1} value={[playbackSpeed]} onValueChange={([val]) => setPlaybackSpeed(val)} />
                   </div>
                   <div className="grid gap-2 mt-2">
-                    <Label htmlFor="pitch-slider">Pitch ({pitch.toFixed(1)})</Label>
+                    <Label htmlFor="pitch-slider" className="text-base">Pitch ({pitch.toFixed(1)})</Label>
                     <Slider id="pitch-slider" min={0.5} max={2} step={0.1} value={[pitch]} onValueChange={([val]) => setPitch(val)} />
                   </div>
                 </div>
@@ -668,7 +660,7 @@ function ReaderView({
 }
 
 const LibrarySkeleton = () => (
-  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 p-6">
+  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6 p-4 md:p-6">
     {Array.from({ length: 12 }).map((_, i) => (
       <Card key={i}>
         <CardHeader className="p-0">
@@ -705,7 +697,7 @@ const AppSettings = ({ isDarkMode, toggleDarkMode }: { isDarkMode: boolean; togg
                     </div>
                     <div className="grid gap-4 text-base">
                         <div className="flex items-center justify-between">
-                            <Label htmlFor="app-dark-mode-switch">Dark Mode</Label>
+                            <Label htmlFor="app-dark-mode-switch" className="text-base">Dark Mode</Label>
                             <Switch id="app-dark-mode-switch" checked={isDarkMode} onCheckedChange={toggleDarkMode} />
                         </div>
                     </div>
@@ -732,7 +724,7 @@ const LibraryView = ({ books, onSelectBook, onRename, onDelete, onImportClick, i
     </header>
     <ScrollArea className="flex-grow">
        {isLoading ? <LibrarySkeleton /> : books.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 p-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6 p-4 md:p-6">
             {books.map(book => (
             <BookCard
                 key={book.id}
@@ -768,10 +760,16 @@ export function LinguaLecta() {
   useEffect(() => {
     
     const storedTheme = localStorage.getItem('lingualecta-theme');
-    if (storedTheme === 'dark') {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    if (storedTheme === 'dark' || (!storedTheme && prefersDark)) {
       document.documentElement.classList.add('dark');
       setIsDarkMode(true);
+    } else {
+      document.documentElement.classList.remove('dark');
+      setIsDarkMode(false);
     }
+
 
     let storedBooks: Book[] = [];
     try {
@@ -996,7 +994,7 @@ export function LinguaLecta() {
 
 
   return (
-    <div className="bg-background font-body text-foreground">
+    <div className="bg-background font-body text-foreground h-dvh">
       {selectedBook ? (
         <ReaderView 
           book={selectedBook} 
