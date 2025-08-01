@@ -156,22 +156,24 @@ function ReaderView({
     const loadVoices = () => {
       const availableVoices = window.speechSynthesis.getVoices();
       if (availableVoices.length > 0) {
-        const englishVoices = availableVoices.filter(v => v.lang.startsWith('en'));
-        
-        // Add a custom voice if available, checking for existence first
-        const customVoice = { name: 'David', lang: 'en-US' } as SpeechSynthesisVoice;
-        const allVoices = [...availableVoices, customVoice];
-        setVoices(allVoices);
+        setVoices(availableVoices);
 
-        const hebrewVoice = allVoices.find(v => v.lang === 'he-IL');
-        const calmingVoice = allVoices.find(v => v.name === 'David');
+        const englishVoices = availableVoices.filter(v => v.lang.startsWith('en'));
+        const hebrewVoice = availableVoices.find(v => v.lang === 'he-IL');
+
+        // Prefer a high-quality, calming voice if available
+        const calmingVoice = availableVoices.find(v => v.name === 'Google UK English Male') || 
+                             availableVoices.find(v => v.name.includes('David')) ||
+                             availableVoices.find(v => v.name.includes('Zira')) ||
+                             englishVoices.find(v => v.name.toLowerCase().includes('male'));
+
         const englishVoice = englishVoices[0];
         
         let defaultVoice;
         if (book && /[\u0590-\u05FF]/.test(book.content)) { // Check for Hebrew characters
-            defaultVoice = hebrewVoice || englishVoice || allVoices[0];
+            defaultVoice = hebrewVoice || englishVoice || availableVoices[0];
         } else {
-            defaultVoice = calmingVoice || englishVoice || allVoices[0];
+            defaultVoice = calmingVoice || englishVoice || availableVoices[0];
         }
         setSelectedVoice(defaultVoice?.name);
       }
