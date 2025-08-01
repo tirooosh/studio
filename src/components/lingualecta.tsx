@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useRef, useEffect, type ChangeEvent } from 'react';
@@ -59,7 +60,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { mockBooks } from '@/lib/data';
+import { Switch } from "@/components/ui/switch";
 
 // Setup worker for pdf.js
 if (typeof window !== 'undefined') {
@@ -138,6 +139,24 @@ function ReaderView({
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const sentenceCharStarts = useRef<number[]>([]);
   const [isCoverLandscape, setIsCoverLandscape] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    const isDark = document.documentElement.classList.contains('dark');
+    setIsDarkMode(isDark);
+  }, []);
+
+  const toggleDarkMode = (checked: boolean) => {
+    setIsDarkMode(checked);
+    if (checked) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('lingualecta-theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('lingualecta-theme', 'light');
+    }
+  };
+
 
   useEffect(() => {
     if (book?.coverImage) {
@@ -196,7 +215,7 @@ function ReaderView({
     utteranceRef.current = null;
   };
 
-  const jumpTo = (charIndex: number) => {
+  const jumpTo = (charIndex: number, andPlay = true) => {
     if (!book || !sentences.length) return;
     
     stopSpeech();
@@ -213,12 +232,14 @@ function ReaderView({
     setCurrentSentenceIndex(sentenceIdx);
     
     // Timeout to ensure cancel() has time to process fully
-    setTimeout(() => playSpeech(sentenceIdx, offsetInSentence, true), 100);
+    if(andPlay){
+        setTimeout(() => playSpeech(sentenceIdx, offsetInSentence, true), 100);
+    }
   }
   
   const playSpeech = (startSentence?: number, startCharInSentence?: number, forcePlay = false) => {
     if ((playbackState === 'playing' && !forcePlay) || !book) return;
-    if(speechSynthesis.speaking) speechSynthesis.cancel();
+    speechSynthesis.cancel();
 
     if (speechSynthesis.paused && playbackState === 'paused' && !forcePlay) {
       speechSynthesis.resume();
@@ -300,7 +321,6 @@ function ReaderView({
     };
     
     utterance.onend = () => {
-      speechSynthesis.cancel();
       const nextSentenceIndex = sentenceIdx + 1;
       if (nextSentenceIndex < sentences.length) {
           setCurrentSentenceIndex(nextSentenceIndex);
@@ -346,7 +366,9 @@ function ReaderView({
       return;
     };
 
-    stopSpeech();
+    const cleanup = () => {
+      stopSpeech();
+    };
     
     const contentSentences = book.content.match(/[^.!?\n]+[.!?\n]*/g) || [book.content];
     setSentences(contentSentences);
@@ -381,9 +403,7 @@ function ReaderView({
 
     setCurrentSentence({start: 0, end: 0});
     
-    const cleanup = () => {
-      stopSpeech();
-    };
+    stopSpeech();
     return cleanup;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book]);
@@ -391,24 +411,8 @@ function ReaderView({
   useEffect(() => {
     if (playbackState !== 'playing') return;
 
-    const voice = voices.find(v => v.name === selectedVoice);
-    if(utteranceRef.current) {
-      if(voice) utteranceRef.current.voice = voice;
-      utteranceRef.current.rate = playbackSpeed;
-      utteranceRef.current.pitch = pitch;
-    }
-
     const currentGlobalChar = currentCharIndex;
-    stopSpeech();
-    
-    let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > currentGlobalChar) - 1;
-    if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
-    if (sentenceIdx < 0) sentenceIdx = 0;
-    
-    const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
-    const offsetInSentence = currentGlobalChar - sentenceStartChar;
-
-    setTimeout(() => playSpeech(sentenceIdx, offsetInSentence, true), 100);
+    jumpTo(currentGlobalChar, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbackSpeed, pitch, selectedVoice]);
   
@@ -463,7 +467,7 @@ function ReaderView({
     const updatedBookmarks = [...(book.bookmarks || []), newBookmark];
     onUpdateBook({ ...book, bookmarks: updatedBookmarks });
     toast({ title: "Bookmark added!" });
-    jumpTo(newBookmark.charIndex);
+    jumpTo(newBookmark.charIndex, true);
   };
 
   const deleteBookmark = (bookmarkId: string) => {
@@ -491,7 +495,7 @@ function ReaderView({
           return (
             <span
               key={sIndex}
-              onClick={() => jumpTo(sStart)}
+              onClick={() => jumpTo(sStart, true)}
               className={cn({
                 'bg-accent/30 rounded sentence-highlight cursor-pointer': isSpoken,
                 'cursor-pointer hover:bg-accent/10': !isSpoken && sentence.trim().length > 0,
@@ -519,22 +523,22 @@ function ReaderView({
 
   return (
     <div className="flex flex-col h-full bg-background">
-       <header className="p-4 md:p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10 h-20 md:h-auto">
+       <header className="p-4 md:px-6 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10 h-24">
         <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={onOpenLibrary} className="md:hidden h-12 w-12">
-                <Menu className="h-6 w-6"/>
+            <Button variant="ghost" size="icon" onClick={onOpenLibrary} className="md:hidden h-14 w-14">
+                <Menu className="h-7 w-7"/>
                 <span className="sr-only">Open Library</span>
             </Button>
-            <Button variant="ghost" onClick={onOpenLibrary} className="hidden md:flex">
-                <ChevronLeft />
+            <Button variant="ghost" onClick={onOpenLibrary} className="hidden md:flex text-base p-4">
+                <ChevronLeft className="h-6 w-6 mr-1" />
                 Back to Library
             </Button>
         </div>
         <div className="text-center">
-            <h2 className="font-semibold truncate max-w-[200px]">{book?.title}</h2>
+            <h2 className="font-semibold truncate max-w-[200px] md:max-w-md text-lg">{book?.title}</h2>
         </div>
-        <Button variant="ghost" size="icon" onClick={addBookmark} className="h-12 w-12">
-            <Bookmark className="h-6 w-6"/>
+        <Button variant="ghost" size="icon" onClick={addBookmark} className="h-14 w-14">
+            <Bookmark className="h-7 w-7"/>
             <span className="sr-only">Add Bookmark</span>
         </Button>
       </header>
@@ -593,7 +597,7 @@ function ReaderView({
                           <blockquote className="text-sm italic border-l-2 pl-2 mt-1">"{b.previewText}"</blockquote>
                         </div>
                         <div className="flex-shrink-0 flex gap-2">
-                           <Button size="sm" variant="outline" onClick={() => jumpTo(b.charIndex)}>
+                           <Button size="sm" variant="outline" onClick={() => jumpTo(b.charIndex, true)}>
                             Go to
                           </Button>
                           <Button size="icon" variant="destructive" onClick={() => deleteBookmark(b.id)}>
@@ -619,49 +623,47 @@ function ReaderView({
 
         </div>
       </ScrollArea>
-      <div className="p-2 md:p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0">
-        <div className="max-w-4xl mx-auto flex items-center gap-2 md:gap-6">
-          <div className="flex items-center gap-1 md:gap-6">
-            <Button variant="ghost" size="lg" onClick={rewindSpeech} aria-label="Rewind 10 seconds" className="h-16 w-16 md:h-24 md:w-24">
-              <Rewind className="h-8 w-8 md:h-12 md:w-12" />
+      <div className="p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0 h-28 flex flex-col justify-center">
+        <div className="w-full flex items-center justify-center mb-2">
+            <Progress value={progress} className="h-2 w-full max-w-lg" />
+        </div>
+        <div className="max-w-lg mx-auto flex items-center justify-between gap-6 w-full">
+            <Button size="lg" className="rounded-full w-20 h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
+              {playbackState === 'playing' ? <Pause className="h-10 w-10" /> : <Play className="h-10 w-10" />}
             </Button>
-            <Button size="lg" className="rounded-full w-20 h-20 md:w-32 md:h-32" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-              {playbackState === 'playing' ? <Pause className="h-10 w-10 md:h-16 md:w-16" /> : <Play className="h-10 w-10 md:h-16 md:w-16" />}
+            <Button variant="ghost" size="icon" onClick={addBookmark} className="h-16 w-16">
+                <Bookmark className="h-8 w-8"/>
+                <span className="sr-only">Add Bookmark</span>
             </Button>
-            <Button variant="ghost" size="lg" onClick={fastForwardSpeech} aria-label="Fast Forward 10 seconds" className="h-16 w-16 md:h-24 md:w-24">
-              <FastForward className="h-8 w-8 md:h-12 md:w-12" />
-            </Button>
-          </div>
-          <div className="flex-grow flex items-center gap-4">
-              <Image src={book.coverImage} alt={book.title} width={56} height={56} className="rounded-md aspect-square object-cover" data-ai-hint="book cover" />
-              <div className="w-full">
-                  <p className="font-semibold truncate">{book.title}</p>
-                  <Progress value={progress} className="h-2 mt-1" />
-              </div>
-          </div>
+
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="icon" className="h-16 w-16 md:h-24 md:w-24" aria-label="Playback Settings">
-                <Settings2 className="h-8 w-8 md:h-12 md:w-12" />
+              <Button variant="ghost" size="icon" className="h-16 w-16" aria-label="Playback Settings">
+                <Settings2 className="h-8 w-8" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80">
-              <div className="grid gap-4">
+            <PopoverContent className="w-80 p-6">
+              <div className="grid gap-6">
                 <div className="space-y-2">
-                  <h4 className="font-medium leading-none font-headline">Playback Settings</h4>
-                  <p className="text-sm text-muted-foreground">
+                  <h4 className="font-medium leading-none font-headline text-lg">Playback Settings</h4>
+                  <p className="text-base text-muted-foreground">
                     Customize your listening experience.
                   </p>
                 </div>
-                <div className="grid gap-2">
+                <div className="grid gap-4 text-base">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="dark-mode-switch">Dark Mode</Label>
+                    <Switch id="dark-mode-switch" checked={isDarkMode} onCheckedChange={toggleDarkMode} />
+                  </div>
+                  <Separator />
                   <Label htmlFor="voice-select">Voice</Label>
                   <Select value={selectedVoice} onValueChange={setSelectedVoice}>
-                    <SelectTrigger id="voice-select">
+                    <SelectTrigger id="voice-select" className="text-base">
                       <SelectValue placeholder="Select a voice" />
                     </SelectTrigger>
                     <SelectContent>
                       {voices.map(voice => (
-                        <SelectItem key={voice.name} value={voice.name}>{voice.name} ({voice.lang})</SelectItem>
+                        <SelectItem key={voice.name} value={voice.name} className="text-base">{voice.name} ({voice.lang})</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -751,6 +753,111 @@ export function LinguaLecta() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
   useEffect(() => {
+    
+    const storedTheme = localStorage.getItem('lingualecta-theme');
+    if (storedTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    }
+
+    const createFallbackCover = (title: string): string => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 300;
+        canvas.height = 400;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.fillStyle = '#f5f5dc'; // beige
+            ctx.fillRect(0, 0, 300, 400);
+            ctx.fillStyle = '#a0522d'; // sienna
+            ctx.font = '20px sans-serif';
+            ctx.textAlign = 'center';
+            
+            const words = title.split(' ');
+            let line = '';
+            let y = 180;
+            for(let n = 0; n < words.length; n++) {
+              let testLine = line + words[n] + ' ';
+              let metrics = ctx.measureText(testLine);
+              let testWidth = metrics.width;
+              if (testWidth > 280 && n > 0) {
+                ctx.fillText(line, 150, y);
+                line = words[n] + ' ';
+                y += 25;
+              }
+              else {
+                line = testLine;
+              }
+            }
+            ctx.fillText(line, 150, y);
+        }
+        return canvas.toDataURL();
+    }
+
+    const mockBooks = (): Book[] => [
+      {
+        id: '1',
+        title: 'The Great Gatsby',
+        author: 'F. Scott Fitzgerald',
+        coverImage: createFallbackCover('The Great Gatsby'),
+        fileType: 'EPUB',
+        content: "In my younger and more vulnerable years my father gave me some advice that I've been turning over in my mind ever since. 'Whenever you feel like criticizing any one,' he told me, 'just remember that all the people in this world haven't had the advantages that you've had.'",
+        bookmarks: [],
+      },
+      {
+        id: '2',
+        title: 'To Kill a Mockingbird',
+        author: 'Harper Lee',
+        coverImage: createFallbackCover('To Kill a Mockingbird'),
+        fileType: 'PDF',
+        content: "When he was nearly thirteen, my brother Jem got his arm badly broken at the elbow. When it healed, and Jem's fears of never being able to play football were assuaged, he was seldom self-conscious about his injury.",
+        bookmarks: [],
+      },
+      {
+        id: '3',
+        title: '1984',
+        author: 'George Orwell',
+        coverImage: createFallbackCover('1984'),
+        fileType: 'MOBI',
+        content: "It was a bright cold day in April, and the clocks were striking thirteen. Winston Smith, his chin nuzzled into his breast in an effort to escape the vile wind, slipped quickly through the glass doors of Victory Mansions, though not quickly enough to prevent a swirl of gritty dust from entering along with him.",
+        bookmarks: [],
+      },
+      {
+        id: '4',
+        title: 'Pride and Prejudice',
+        author: 'Jane Austen',
+        coverImage: createFallbackCover('Pride and Prejudice'),
+        fileType: 'DOCX',
+        content: "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife. However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families, that he is considered the rightful property of some one or other of their daughters.",
+        bookmarks: [],
+      },
+        {
+        id: '5',
+        title: 'The Hobbit',
+        author: 'J.R.R. Tolkien',
+        coverImage: createFallbackCover('The Hobbit'),
+        fileType: 'EPUB',
+        content: "In a hole in the ground there lived a hobbit. Not a nasty, dirty, wet hole, filled with the ends of worms and an oozy smell, nor yet a dry, bare, sandy hole with nothing in it to sit down on or to eat: it was a hobbit-hole, and that means comfort.",
+        bookmarks: [],
+      },
+      {
+        id: '6',
+        title: 'A Tale of Two Cities',
+        author: 'Charles Dickens',
+        coverImage: createFallbackCover('A Tale of Two Cities'),
+        fileType: 'TXT',
+        content: "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity, it was the season of Light, it was the season of Darkness, it was the spring of hope, it was the winter of despair.",
+        bookmarks: [],
+      },
+      {
+        id: '7',
+        title: 'האריה והעכבר',
+        author: 'איזופוס',
+        coverImage: createFallbackCover('האריה והעכבר'),
+        fileType: 'TXT',
+        content: "אריה ישן ביער. עכבר קטן התרוצץ לידו והעיר אותו. האריה הכועס תפס את העכבר ורצה לאכול אותו. 'בבקשה, שחרר אותי,' צייץ העכבר. 'אולי יום אחד אוכל לעזור לך.' האריה צחק ושיחרר אותו. כמה ימים לאחר מכן, ציידים לכדו את האריה ברשת. העכבר שמע את שאגותיו, רץ אל הרשת, וכרסם את החבלים עד שהאריה היה חופשי. 'אתה רואה,' אמר העכבר, 'גם עכבר קטן יכול לעזור לאריה גדול.'",
+        bookmarks: [],
+      },
+    ];
+
     let storedBooks: Book[] = [];
     try {
       const storedBooksJSON = localStorage.getItem('lingualecta-books');
@@ -769,7 +876,6 @@ export function LinguaLecta() {
     if (storedBooks.length > 0) {
         setBooks(storedBooks);
     } else {
-        // This part now runs only on the client, so document is available.
         setBooks(mockBooks());
     }
     
