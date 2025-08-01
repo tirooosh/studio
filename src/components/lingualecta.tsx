@@ -13,9 +13,11 @@ import {
   BookOpen,
   Settings2,
   Menu,
+  Bookmark,
+  Trash2,
 } from 'lucide-react';
 
-import type { Book } from '@/lib/types';
+import type { Book, Bookmark as BookmarkType } from '@/lib/types';
 import { mockBooks } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { useToast } from "@/hooks/use-toast";
@@ -54,6 +56,8 @@ import {
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 
 interface BookCardProps {
   book: Book;
@@ -101,7 +105,15 @@ function BookCard({ book, onSelectBook, onRename, onDelete }: BookCardProps) {
   );
 }
 
-function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary: () => void }) {
+function ReaderView({ 
+  book, 
+  onOpenLibrary,
+  onUpdateBook,
+}: { 
+  book: Book | null, 
+  onOpenLibrary: () => void,
+  onUpdateBook: (book: Book) => void,
+}) {
   const [playbackState, setPlaybackState] = useState<'playing' | 'paused' | 'stopped'>('stopped');
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [pitch, setPitch] = useState(1);
@@ -110,13 +122,22 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
   const [progress, setProgress] = useState(0);
   const [currentCharIndex, setCurrentCharIndex] = useState(0);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     const loadVoices = () => {
       const availableVoices = window.speechSynthesis.getVoices();
       if (availableVoices.length > 0) {
         setVoices(availableVoices);
-        const defaultVoice = availableVoices.find(v => v.lang.startsWith('en')) || availableVoices[0];
+        const hebrewVoice = availableVoices.find(v => v.lang === 'he-IL');
+        const englishVoice = availableVoices.find(v => v.lang.startsWith('en'));
+        
+        let defaultVoice;
+        if (book && /[\u0590-\u05FF]/.test(book.content)) { // Check for Hebrew characters
+            defaultVoice = hebrewVoice || englishVoice || availableVoices[0];
+        } else {
+            defaultVoice = englishVoice || availableVoices[0];
+        }
         setSelectedVoice(defaultVoice?.name);
       }
     };
@@ -125,20 +146,31 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
     };
-  }, []);
+  }, [book]);
   
   const stopSpeech = () => {
     if (speechSynthesis.speaking) {
       speechSynthesis.cancel();
     }
     setPlaybackState('stopped');
-    setProgress(0);
-    setCurrentCharIndex(0);
     utteranceRef.current = null;
   };
+
+  const jumpTo = (charIndex: number) => {
+    if (!book) return;
+    stopSpeech();
+    // Timeout to ensure cancel() has time to process fully
+    setTimeout(() => setupUtterance(book, charIndex), 100);
+  }
   
-  const playSpeech = () => {
-    if (!utteranceRef.current) return;
+  const playSpeech = (startChar?: number) => {
+    if (utteranceRef.current === null) {
+      if (book) {
+        setupUtterance(book, startChar ?? currentCharIndex);
+      }
+      return;
+    }
+
     if (speechSynthesis.paused && playbackState === 'paused') {
       speechSynthesis.resume();
     } else {
@@ -153,23 +185,12 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
   };
 
   const rewindSpeech = () => {
-    stopSpeech();
-    // Timeout ensures cancel() completes before speak() is called
-    setTimeout(() => {
-      if(book) setupUtterance(book, 0);
-    }, 100);
+    jumpTo(Math.max(0, currentCharIndex - 250)); // Rewind ~15s
   };
   
   const fastForwardSpeech = () => {
-    if (!book || !utteranceRef.current) return;
-    stopSpeech();
-    
-    // Not a true fast-forward, but jumps ahead ~15 seconds (approximated by character count)
-    const nextCharIndex = Math.min(currentCharIndex + 250, book.content.length - 1);
-
-    setTimeout(() => {
-        if(book) setupUtterance(book, nextCharIndex);
-    }, 100);
+    if (!book) return;
+    jumpTo(Math.min(currentCharIndex + 250, book.content.length - 1));
   }
 
   const handlePlayPauseClick = () => {
@@ -181,7 +202,13 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
   };
 
   const setupUtterance = (currentBook: Book, startChar: number = 0) => {
-    const utterance = new SpeechSynthesisUtterance(currentBook.content.substring(startChar));
+    const contentToSpeak = currentBook.content.substring(startChar);
+    if (!contentToSpeak) {
+        setPlaybackState('stopped');
+        return;
+    };
+
+    const utterance = new SpeechSynthesisUtterance(contentToSpeak);
     const voice = voices.find(v => v.name === selectedVoice);
     if (voice) utterance.voice = voice;
     utterance.rate = playbackSpeed;
@@ -195,12 +222,9 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
     
     utterance.onend = () => {
       setPlaybackState('stopped');
+      // Don't reset to 0, show completion
       setProgress(100);
       setCurrentCharIndex(currentBook.content.length);
-      setTimeout(() => {
-        setProgress(0);
-        setCurrentCharIndex(0);
-      }, 500);
     };
     
     utteranceRef.current = utterance;
@@ -210,29 +234,20 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
   useEffect(() => {
     if (!book) {
       stopSpeech();
+      setProgress(0);
+      setCurrentCharIndex(0);
       return;
     };
 
     stopSpeech();
     
-    // Setup needs voices to be loaded, wait for them if not present.
-    const checkVoicesAndSetup = () => {
-      if (window.speechSynthesis.getVoices().length > 0) {
-        setupUtterance(book);
-      } else {
-        window.speechSynthesis.onvoiceschanged = () => {
-          setupUtterance(book);
-          window.speechSynthesis.onvoiceschanged = null; // Unset after first fire
-        }
-      }
-    };
+    // When book changes, reset progress
+    setProgress(0);
+    setCurrentCharIndex(0);
     
-    // We auto-play when a new book is selected.
-    // Use a small delay to allow UI to update.
-    const timeoutId = setTimeout(checkVoicesAndSetup, 100);
-
+    // Auto-play is disabled to avoid starting immediately. User must press play.
+    
     return () => {
-      clearTimeout(timeoutId);
       stopSpeech();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,7 +259,14 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
         utteranceRef.current.pitch = pitch;
         const voice = voices.find(v => v.name === selectedVoice);
         if(voice) utteranceRef.current.voice = voice;
+
+        // If playing, restart to apply changes
+        if(playbackState === 'playing') {
+            stopSpeech();
+            setTimeout(() => setupUtterance(book!, currentCharIndex), 100);
+        }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbackSpeed, pitch, selectedVoice, voices]);
   
   useEffect(() => {
@@ -258,10 +280,16 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
     
     navigator.mediaSession.playbackState = playbackState === 'playing' ? 'playing' : 'paused';
 
-    navigator.mediaSession.setActionHandler('play', playSpeech);
+    navigator.mediaSession.setActionHandler('play', () => playSpeech());
     navigator.mediaSession.setActionHandler('pause', pauseSpeech);
     navigator.mediaSession.setActionHandler('seekbackward', () => rewindSpeech());
     navigator.mediaSession.setActionHandler('seekforward', () => fastForwardSpeech());
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if(details.seekTime && book) {
+            const seekChar = Math.floor((details.seekTime / book.content.length) * book.content.length);
+            jumpTo(seekChar);
+        }
+    });
 
 
     return () => {
@@ -269,14 +297,38 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
       navigator.mediaSession.setActionHandler('pause', null);
       navigator.mediaSession.setActionHandler('seekbackward', null);
       navigator.mediaSession.setActionHandler('seekforward', null);
+      navigator.mediaSession.setActionHandler('seekto', null);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book, playbackState]);
+  }, [book, playbackState, currentCharIndex]);
+
+  const addBookmark = () => {
+    if (!book) return;
+    const newBookmark: BookmarkType = {
+        id: new Date().toISOString(),
+        charIndex: currentCharIndex,
+        createdAt: new Date().toLocaleString(),
+        previewText: book.content.substring(currentCharIndex, currentCharIndex + 50) + "...",
+    };
+
+    const updatedBookmarks = [...(book.bookmarks || []), newBookmark];
+    onUpdateBook({ ...book, bookmarks: updatedBookmarks });
+    toast({ title: "Bookmark added!" });
+  };
+
+  const deleteBookmark = (bookmarkId: string) => {
+    if (!book) return;
+    const updatedBookmarks = (book.bookmarks || []).filter(b => b.id !== bookmarkId);
+    onUpdateBook({ ...book, bookmarks: updatedBookmarks });
+    toast({ title: "Bookmark removed.", variant: "destructive" });
+  };
 
 
   const SpokenText = () => {
     if (!book) return null;
-    if (currentCharIndex === 0) return <p>{book.content}</p>;
+    if (currentCharIndex === 0 && playbackState !== 'playing') {
+      return <p>{book.content}</p>;
+    }
     const spoken = book.content.substring(0, currentCharIndex);
     const remaining = book.content.substring(currentCharIndex);
     return (<p><span className="bg-accent/30">{spoken}</span>{remaining}</p>);
@@ -304,11 +356,14 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
         <div className="text-center">
             <h2 className="font-semibold truncate max-w-[200px]">{book?.title}</h2>
         </div>
-        <div className="w-10" />
+        <Button variant="ghost" size="icon" onClick={addBookmark}>
+            <Bookmark />
+            <span className="sr-only">Add Bookmark</span>
+        </Button>
       </header>
 
-      <div className="flex-grow p-6 lg:p-8 overflow-y-auto">
-        <div className="max-w-4xl mx-auto">
+      <ScrollArea className="flex-grow">
+        <div className="max-w-4xl mx-auto p-6 lg:p-8">
           <div className="flex flex-col md:flex-row gap-8 items-start mb-8">
             <Image
               src={book.coverImage}
@@ -318,21 +373,69 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
               className="rounded-lg shadow-lg aspect-[3/4] object-cover"
               data-ai-hint="book cover"
             />
-            <div className="pt-4">
+            <div className="pt-4 flex-1">
               <h1 className="font-headline text-3xl lg:text-4xl font-bold">{book.title}</h1>
               <p className="text-xl text-muted-foreground mt-2">{book.author}</p>
-              <FileTypeIcon fileType={book.fileType} className="mt-4" />
+              <div className="flex items-center justify-between">
+                <FileTypeIcon fileType={book.fileType} className="mt-4" />
+                <Button variant="outline" onClick={addBookmark} className="hidden md:flex">
+                    <Bookmark className="mr-2"/> Add Bookmark
+                </Button>
+              </div>
             </div>
           </div>
           
           <Separator className="my-8" />
+          
+          <Tabs defaultValue="content">
+            <TabsList className="mb-4">
+              <TabsTrigger value="content">Content</TabsTrigger>
+              <TabsTrigger value="bookmarks">
+                Bookmarks <span className="ml-2 bg-muted text-muted-foreground rounded-full px-2 text-xs">{book.bookmarks?.length || 0}</span>
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="content">
+              <article className="prose prose-lg dark:prose-invert max-w-none text-foreground/90">
+                <SpokenText />
+              </article>
+            </TabsContent>
+            <TabsContent value="bookmarks">
+              {book.bookmarks && book.bookmarks.length > 0 ? (
+                <div className="space-y-4">
+                  {book.bookmarks.map(b => (
+                    <Card key={b.id} className="overflow-hidden">
+                      <CardContent className="p-4 flex items-center justify-between gap-4">
+                        <div className="flex-grow">
+                          <p className="text-sm font-medium text-muted-foreground">Added on {b.createdAt}</p>
+                          <blockquote className="text-sm italic border-l-2 pl-2 mt-1">"{b.previewText}"</blockquote>
+                        </div>
+                        <div className="flex-shrink-0 flex gap-2">
+                           <Button size="sm" variant="outline" onClick={() => jumpTo(b.charIndex)}>
+                            Go to
+                          </Button>
+                          <Button size="icon" variant="destructive" onClick={() => deleteBookmark(b.id)}>
+                            <Trash2 className="h-4 w-4" />
+                            <span className="sr-only">Delete bookmark</span>
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Bookmark className="mx-auto h-12 w-12 text-muted-foreground/50"/>
+                  <h3 className="mt-4 text-lg font-semibold">No Bookmarks Yet</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Click the bookmark icon while reading to save your spot.
+                  </p>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
-          <h2 className="font-headline text-2xl font-bold mb-4">Content</h2>
-          <article className="prose prose-lg dark:prose-invert max-w-none text-foreground/90">
-            <SpokenText />
-          </article>
         </div>
-      </div>
+      </ScrollArea>
       <div className="p-4 border-t bg-card/80 backdrop-blur-sm sticky bottom-0">
         <div className="max-w-4xl mx-auto flex items-center gap-4">
           <div className="flex items-center gap-2">
@@ -398,7 +501,7 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
 }
 
 const LibrarySkeleton = () => (
-  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-2 gap-4 p-4">
     {Array.from({ length: 4 }).map((_, i) => (
       <Card key={i}>
         <CardHeader className="p-0">
@@ -431,7 +534,7 @@ const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick
     </header>
     <ScrollArea className="flex-grow">
        {isLoading ? <LibrarySkeleton /> : books.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-2 gap-4 p-4">
             {books.map(book => (
             <BookCard
                 key={book.id}
@@ -515,6 +618,7 @@ export function LinguaLecta() {
             coverImage: 'https://placehold.co/300x400',
             fileType: (file.name.split('.').pop()?.toUpperCase() as Book['fileType']) || 'TXT',
             content: content.substring(0, 5000), // Truncate for performance
+            bookmarks: [],
         };
 
         setBooks(prev => [newBook, ...prev]);
@@ -544,6 +648,13 @@ export function LinguaLecta() {
     setIsLibraryOpen(false);
   }
 
+  const handleUpdateBook = (updatedBook: Book) => {
+    setBooks(books.map(b => b.id === updatedBook.id ? updatedBook : b));
+    if (selectedBook?.id === updatedBook.id) {
+        setSelectedBook(updatedBook);
+    }
+  };
+
   const handleRenameRequest = (book: Book) => {
     setRenameValue(book.title);
     setDialogState({ type: 'rename', book });
@@ -555,10 +666,8 @@ export function LinguaLecta() {
   
   const handleConfirmRename = () => {
     if (dialogState.book) {
-      setBooks(books.map(b => b.id === dialogState.book!.id ? { ...b, title: renameValue } : b));
-      if (selectedBook?.id === dialogState.book.id) {
-          setSelectedBook(prev => prev ? { ...prev, title: renameValue } : null);
-      }
+      const updatedBook = { ...dialogState.book, title: renameValue };
+      handleUpdateBook(updatedBook);
       toast({ title: "Book renamed successfully." });
       setDialogState({ type: 'rename', book: null });
     }
@@ -600,14 +709,14 @@ export function LinguaLecta() {
             onSelectBook={handleSelectBook}
             onRename={handleRenameRequest}
             onDelete={handleDeleteRequest}
-            onImportClick={() => fileInputCref.current?.click()}
+            onImportClick={() => fileInputRef.current?.click()}
             isLoading={isLoading}
         />
         <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.epub,.mobi,.docx,.txt"/>
       </aside>
 
       <main className="flex-1 h-full">
-        <ReaderView book={selectedBook} onOpenLibrary={() => setIsLibraryOpen(true)} />
+        <ReaderView book={selectedBook} onOpenLibrary={() => setIsLibraryOpen(true)} onUpdateBook={handleUpdateBook} />
       </main>
 
       <AlertDialog open={!!dialogState.book && dialogState.type === 'rename'} onOpenChange={() => setDialogState({ ...dialogState, book: null })}>
@@ -646,5 +755,3 @@ export function LinguaLecta() {
     </div>
   );
 }
-
-    

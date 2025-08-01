@@ -1,3 +1,10 @@
+export type Bookmark = {
+  id: string;
+  charIndex: number;
+  createdAt: string;
+  previewText: string;
+}
+
 export type Book = {
   id: string;
   title: string;
@@ -5,4 +12,5 @@ export type Book = {
   coverImage: string;
   fileType: 'PDF' | 'EPUB' | 'MOBI' | 'DOCX' | 'TXT';
   content: string;
+  bookmarks?: Bookmark[];
 }
