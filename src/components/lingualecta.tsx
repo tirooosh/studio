@@ -214,14 +214,14 @@ function ReaderView({
     setCurrentSentenceIndex(sentenceIdx);
     
     // Timeout to ensure cancel() has time to process fully
-    setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
+    setTimeout(() => playSpeech(sentenceIdx, offsetInSentence, true), 100);
   }
   
-  const playSpeech = (startSentence?: number, startCharInSentence?: number) => {
-    if (playbackState === 'playing' || !book) return;
+  const playSpeech = (startSentence?: number, startCharInSentence?: number, forcePlay = false) => {
+    if ((playbackState === 'playing' && !forcePlay) || !book) return;
     if(speechSynthesis.speaking) speechSynthesis.cancel();
 
-    if (speechSynthesis.paused && playbackState === 'paused') {
+    if (speechSynthesis.paused && playbackState === 'paused' && !forcePlay) {
       speechSynthesis.resume();
       setPlaybackState('playing');
     } else {
@@ -301,6 +301,7 @@ function ReaderView({
     };
     
     utterance.onend = () => {
+      speechSynthesis.cancel();
       const nextSentenceIndex = sentenceIdx + 1;
       if (nextSentenceIndex < sentences.length) {
           setCurrentSentenceIndex(nextSentenceIndex);
@@ -408,7 +409,7 @@ function ReaderView({
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
     const offsetInSentence = currentGlobalChar - sentenceStartChar;
 
-    setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
+    setTimeout(() => playSpeech(sentenceIdx, offsetInSentence, true), 100);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbackSpeed, pitch, selectedVoice]);
   
@@ -749,24 +750,30 @@ export function LinguaLecta() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
   useEffect(() => {
+    let storedBooks: Book[] = [];
     try {
-      const storedBooks = localStorage.getItem('lingualecta-books');
-      if (storedBooks) {
-        setBooks(JSON.parse(storedBooks));
-      } else {
-        setBooks(mockBooks());
+      const storedBooksJSON = localStorage.getItem('lingualecta-books');
+      if (storedBooksJSON) {
+        storedBooks = JSON.parse(storedBooksJSON);
       }
     } catch (error) {
       console.error("Could not load books from local storage", error);
-      setBooks(mockBooks());
       toast({
           title: "Error loading books",
           description: "Could not load your library. Using default books.",
           variant: "destructive"
       })
-    } finally {
-        setIsLoading(false);
     }
+
+    if (storedBooks.length > 0) {
+        setBooks(storedBooks);
+    } else {
+        // This part now runs only on the client, so document is available.
+        setBooks(mockBooks());
+    }
+    
+    setIsLoading(false);
+
   }, [toast]);
 
   useEffect(() => {
