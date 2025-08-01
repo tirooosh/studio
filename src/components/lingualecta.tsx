@@ -120,8 +120,10 @@ function ReaderView({
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string | undefined>(undefined);
   const [progress, setProgress] = useState(0);
+  const [currentWord, setCurrentWord] = useState({start: 0, end: 0});
   const [currentCharIndex, setCurrentCharIndex] = useState(0);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -153,12 +155,14 @@ function ReaderView({
       speechSynthesis.cancel();
     }
     setPlaybackState('stopped');
+    setCurrentWord({start: 0, end: 0});
     utteranceRef.current = null;
   };
 
   const jumpTo = (charIndex: number) => {
     if (!book) return;
     stopSpeech();
+    setCurrentCharIndex(charIndex);
     // Timeout to ensure cancel() has time to process fully
     setTimeout(() => setupUtterance(book, charIndex), 100);
   }
@@ -216,12 +220,16 @@ function ReaderView({
 
     utterance.onboundary = (event) => {
       const globalCharIndex = startChar + event.charIndex;
+      const globalCharLength = event.charLength;
+      
       setCurrentCharIndex(globalCharIndex);
+      setCurrentWord({start: globalCharIndex, end: globalCharIndex + globalCharLength});
       setProgress((globalCharIndex / currentBook.content.length) * 100);
     };
     
     utterance.onend = () => {
       setPlaybackState('stopped');
+      setCurrentWord({start: 0, end: 0});
       // Don't reset to 0, show completion
       setProgress(100);
       setCurrentCharIndex(currentBook.content.length);
@@ -230,6 +238,15 @@ function ReaderView({
     utteranceRef.current = utterance;
     playSpeech();
   };
+
+  useEffect(() => {
+    if (contentRef.current && currentWord.end > 0) {
+      const highlightElement = contentRef.current.querySelector(`[data-char-index='${currentWord.start}']`);
+      if (highlightElement) {
+        highlightElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [currentWord]);
   
   useEffect(() => {
     if (!book) {
@@ -244,6 +261,7 @@ function ReaderView({
     // When book changes, reset progress
     setProgress(0);
     setCurrentCharIndex(0);
+    setCurrentWord({start: 0, end: 0});
     
     // Auto-play is disabled to avoid starting immediately. User must press play.
     
@@ -326,13 +344,34 @@ function ReaderView({
 
   const SpokenText = () => {
     if (!book) return null;
-    if (currentCharIndex === 0 && playbackState !== 'playing') {
-      return <p>{book.content}</p>;
-    }
-    const spoken = book.content.substring(0, currentCharIndex);
-    const remaining = book.content.substring(currentCharIndex);
-    return (<p><span className="bg-accent/30">{spoken}</span>{remaining}</p>);
-  };
+
+    let charCounter = 0;
+    const words = book.content.split(/(\s+)/); // Split by whitespace, keeping delimiters
+
+    return (
+        <p>
+            {words.map((word, index) => {
+                const start = charCounter;
+                const end = start + word.length;
+                charCounter = end;
+
+                const isSpoken = start < currentWord.end && end > currentWord.start;
+
+                return (
+                    <span
+                        key={index}
+                        data-char-index={start}
+                        className={cn({
+                            'bg-accent/30': isSpoken
+                        })}
+                    >
+                        {word}
+                    </span>
+                );
+            })}
+        </p>
+    );
+};
 
   if (!book) {
     return (
@@ -395,7 +434,7 @@ function ReaderView({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="content">
-              <article className="prose prose-lg dark:prose-invert max-w-none text-foreground/90">
+              <article ref={contentRef} className="prose prose-lg dark:prose-invert max-w-none text-foreground/90">
                 <SpokenText />
               </article>
             </TabsContent>
@@ -609,7 +648,15 @@ export function LinguaLecta() {
       // Simulate file reading and parsing
       const reader = new FileReader();
       reader.onload = (e) => {
-        const content = e.target?.result as string || `This is the content of the newly imported book "${file.name}". It's ready for you to listen.`;
+        const content = e.target?.result as string;
+        if (!content) {
+            toast({
+                title: "File Read Error",
+                description: `Could not read the file ${file.name}. It might be empty.`,
+                variant: "destructive"
+            });
+            return;
+        }
         
         const newBook: Book = {
             id: new Date().toISOString(),
