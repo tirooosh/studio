@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useRef, useEffect, type ChangeEvent } from 'react';
@@ -132,6 +133,10 @@ function ReaderView({
   const contentRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
+  const [textChunks, setTextChunks] = useState<string[]>([]);
+  const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
+  const chunkCharStarts = useRef<number[]>([]);
+
   useEffect(() => {
     const loadVoices = () => {
       const availableVoices = window.speechSynthesis.getVoices();
@@ -170,15 +175,27 @@ function ReaderView({
   };
 
   const jumpTo = (charIndex: number) => {
-    if (!book) return;
-    const clampedIndex = Math.max(0, Math.min(charIndex, book.content.length - 1));
+    if (!book || !textChunks.length) return;
+    
     stopSpeech();
+    
+    const clampedIndex = Math.max(0, Math.min(charIndex, book.content.length - 1));
     setCurrentCharIndex(clampedIndex);
+    
+    let chunkIndex = chunkCharStarts.current.findIndex(start => start > clampedIndex) - 1;
+    if (chunkIndex < -1) chunkIndex = chunkCharStarts.current.length -1;
+    if (chunkIndex < 0) chunkIndex = 0;
+    
+    setCurrentChunkIndex(chunkIndex);
+    
+    const chunkStartChar = chunkCharStarts.current[chunkIndex];
+    const charOffsetInChunk = clampedIndex - chunkStartChar;
+    
     // Timeout to ensure cancel() has time to process fully
-    setTimeout(() => setupUtterance(book, clampedIndex), 100);
+    setTimeout(() => playSpeech(chunkIndex, charOffsetInChunk), 100);
   }
   
-  const playSpeech = (startChar?: number) => {
+  const playSpeech = (startChunk?: number, startCharInChunk?: number) => {
     if (playbackState === 'playing') return;
 
     if (speechSynthesis.paused && playbackState === 'paused') {
@@ -186,7 +203,9 @@ function ReaderView({
       setPlaybackState('playing');
     } else {
       if (book) {
-        setupUtterance(book, startChar ?? currentCharIndex);
+        const chunkIdx = startChunk ?? currentChunkIndex;
+        const charIdxInChunk = startCharInChunk ?? 0;
+        setupUtterance(chunkIdx, charIdxInChunk);
       }
     }
   };
@@ -212,12 +231,23 @@ function ReaderView({
     }
   };
 
-  const setupUtterance = (currentBook: Book, startChar: number = 0) => {
-    const contentToSpeak = currentBook.content.substring(startChar);
-    if (!contentToSpeak) {
+  const setupUtterance = (chunkIndex: number, startCharInChunk: number = 0) => {
+    const chunk = textChunks[chunkIndex];
+    if (!chunk) {
         setPlaybackState('stopped');
         return;
     };
+    const contentToSpeak = chunk.substring(startCharInChunk);
+    if (!contentToSpeak) {
+        // move to next chunk if current is empty
+        if (chunkIndex < textChunks.length - 1) {
+            setCurrentChunkIndex(chunkIndex + 1);
+            setupUtterance(chunkIndex + 1);
+        } else {
+            setPlaybackState('stopped');
+        }
+        return;
+    }
 
     const utterance = new SpeechSynthesisUtterance(contentToSpeak);
     const voice = voices.find(v => v.name === selectedVoice);
@@ -225,25 +255,32 @@ function ReaderView({
     utterance.rate = playbackSpeed;
     utterance.pitch = pitch;
 
+    const chunkStartChar = chunkCharStarts.current[chunkIndex] || 0;
+    const utteranceStartChar = chunkStartChar + startCharInChunk;
+
     utterance.onboundary = (event) => {
-      const globalCharIndex = startChar + event.charIndex;
-      // Use charLength from utterance if event doesn't provide it
+      const globalCharIndex = utteranceStartChar + event.charIndex;
       const globalCharLength = event.charLength || (utterance.text.substring(event.charIndex).split(/\s|[,.?!;:]/)[0] || "").length;
       
       setCurrentCharIndex(globalCharIndex);
       setCurrentWord({start: globalCharIndex, end: globalCharIndex + globalCharLength});
-      if (currentBook.content.length > 0) {
-        setProgress((globalCharIndex / currentBook.content.length) * 100);
+      if (book && book.content.length > 0) {
+        setProgress((globalCharIndex / book.content.length) * 100);
       }
     };
     
     utterance.onend = () => {
-      setPlaybackState('stopped');
-      setCurrentWord({start: 0, end: 0});
-      // Don't reset to 0, show completion
-      setProgress(100);
-      setCurrentCharIndex(currentBook.content.length);
-      utteranceRef.current = null;
+      const nextChunkIndex = chunkIndex + 1;
+      if (nextChunkIndex < textChunks.length) {
+        setCurrentChunkIndex(nextChunkIndex);
+        setupUtterance(nextChunkIndex);
+      } else {
+        setPlaybackState('stopped');
+        setCurrentWord({start: 0, end: 0});
+        setProgress(100);
+        if(book) setCurrentCharIndex(book.content.length);
+        utteranceRef.current = null;
+      }
     };
 
     utterance.onerror = (event) => {
@@ -271,17 +308,32 @@ function ReaderView({
       stopSpeech();
       setProgress(0);
       setCurrentCharIndex(0);
+      setTextChunks([]);
+      chunkCharStarts.current = [];
       return;
     };
 
     stopSpeech();
     
-    // When book changes, reset progress
+    const chunks = book.content.split(/\n\n+/).filter(p => p.trim().length > 0);
+    setTextChunks(chunks);
+
+    let charCount = 0;
+    const starts: number[] = [];
+    book.content.split(/\n\n+/).forEach(p => {
+        if(p.trim().length > 0) {
+            starts.push(charCount);
+            charCount += p.length;
+        } else {
+            charCount += p.length;
+        }
+    })
+    chunkCharStarts.current = starts;
+    
     setProgress(0);
     setCurrentCharIndex(0);
+    setCurrentChunkIndex(0);
     setCurrentWord({start: 0, end: 0});
-    
-    // Auto-play is disabled to avoid starting immediately. User must press play.
     
     return () => {
       stopSpeech();
@@ -296,10 +348,18 @@ function ReaderView({
         const voice = voices.find(v => v.name === selectedVoice);
         if(voice) utteranceRef.current.voice = voice;
 
-        // If playing, restart to apply changes
         if(playbackState === 'playing') {
+            const currentGlobalChar = currentCharIndex;
             stopSpeech();
-            setTimeout(() => setupUtterance(book!, currentCharIndex), 100);
+            // We need to find which chunk and what character offset we are at.
+            let chunkIndex = chunkCharStarts.current.findIndex(start => start > currentGlobalChar) - 1;
+            if (chunkIndex < -1) chunkIndex = chunkCharStarts.current.length - 1;
+            if (chunkIndex < 0) chunkIndex = 0;
+            
+            const chunkStartChar = chunkCharStarts.current[chunkIndex];
+            const charOffsetInChunk = currentGlobalChar - chunkStartChar;
+            
+            setTimeout(() => playSpeech(chunkIndex, charOffsetInChunk), 100);
         }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -336,7 +396,7 @@ function ReaderView({
       navigator.mediaSession.setActionHandler('seekto', null);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book, playbackState, currentCharIndex]);
+  }, [book, playbackState, currentCharIndex, textChunks]);
 
   const addBookmark = () => {
     if (!book) return;
