@@ -118,10 +118,14 @@ function ReaderView({
   book, 
   onOpenLibrary,
   onUpdateBook,
+  isDarkMode,
+  toggleDarkMode,
 }: { 
   book: Book | null, 
   onOpenLibrary: () => void,
   onUpdateBook: (book: Book) => void,
+  isDarkMode: boolean,
+  toggleDarkMode: (checked: boolean) => void,
 }) {
   const [playbackState, setPlaybackState] = useState<'playing' | 'paused' | 'stopped'>('stopped');
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -139,25 +143,7 @@ function ReaderView({
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const sentenceCharStarts = useRef<number[]>([]);
   const [isCoverLandscape, setIsCoverLandscape] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-
-  useEffect(() => {
-    const isDark = document.documentElement.classList.contains('dark');
-    setIsDarkMode(isDark);
-  }, []);
-
-  const toggleDarkMode = (checked: boolean) => {
-    setIsDarkMode(checked);
-    if (checked) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('lingualecta-theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('lingualecta-theme', 'light');
-    }
-  };
-
-
+  
   useEffect(() => {
     if (book?.coverImage) {
         const img = new window.Image();
@@ -705,17 +691,48 @@ const LibrarySkeleton = () => (
   </div>
 );
 
+const AppSettings = ({ isDarkMode, toggleDarkMode }: { isDarkMode: boolean; toggleDarkMode: (checked: boolean) => void }) => {
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm">
+                    <Settings2 className="mr-2 h-4 w-4" /> Settings
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 p-6">
+                <div className="grid gap-6">
+                    <div className="space-y-2">
+                        <h4 className="font-medium leading-none font-headline text-lg">Settings</h4>
+                        <p className="text-base text-muted-foreground">
+                            Customize your app experience.
+                        </p>
+                    </div>
+                    <div className="grid gap-4 text-base">
+                        <div className="flex items-center justify-between">
+                            <Label htmlFor="app-dark-mode-switch">Dark Mode</Label>
+                            <Switch id="app-dark-mode-switch" checked={isDarkMode} onCheckedChange={toggleDarkMode} />
+                        </div>
+                    </div>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+};
 
-const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick, isLoading }: { books: Book[], onSelectBook: (book: Book) => void, onRename: (book: Book) => void, onDelete: (book: Book) => void, onImportClick: () => void, isLoading: boolean}) => (
+
+const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick, isLoading, isDarkMode, toggleDarkMode }: { books: Book[], onSelectBook: (book: Book) => void, onRename: (book: Book) => void, onDelete: (book: Book) => void, onImportClick: () => void, isLoading: boolean, isDarkMode: boolean, toggleDarkMode: (checked: boolean) => void }) => (
   <>
     <header className="p-4 border-b flex items-center justify-between flex-shrink-0">
       <div className="flex items-center gap-2">
         <Logo className="h-8 w-8" />
         <h1 className="font-headline text-xl font-bold">LinguaLecta</h1>
       </div>
-      <Button onClick={onImportClick} size="sm">
-        <UploadCloud className="mr-2 h-4 w-4" /> Import
-      </Button>
+       <div className="flex items-center gap-2">
+        <Button onClick={onImportClick} size="sm">
+            <UploadCloud className="mr-2 h-4 w-4" /> Import
+        </Button>
+        <AppSettings isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+      </div>
     </header>
     <ScrollArea className="flex-grow">
        {isLoading ? <LibrarySkeleton /> : books.length > 0 ? (
@@ -751,12 +768,14 @@ export function LinguaLecta() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
     
     const storedTheme = localStorage.getItem('lingualecta-theme');
     if (storedTheme === 'dark') {
       document.documentElement.classList.add('dark');
+      setIsDarkMode(true);
     }
 
     const createFallbackCover = (title: string): string => {
@@ -897,6 +916,17 @@ export function LinguaLecta() {
       }
     }
   }, [books, isLoading, toast]);
+
+  const toggleDarkMode = (checked: boolean) => {
+    setIsDarkMode(checked);
+    if (checked) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('lingualecta-theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('lingualecta-theme', 'light');
+    }
+  };
   
   const generatePdfCover = async (pdf: pdfjsLib.PDFDocumentProxy): Promise<string> => {
     try {
@@ -1089,6 +1119,8 @@ export function LinguaLecta() {
                     setIsLibraryOpen(false);
                 }}
                 isLoading={isLoading}
+                isDarkMode={isDarkMode}
+                toggleDarkMode={toggleDarkMode}
             />
         </SheetContent>
       </Sheet>
@@ -1106,6 +1138,8 @@ export function LinguaLecta() {
             onDelete={handleDeleteRequest}
             onImportClick={() => fileInputRef.current?.click()}
             isLoading={isLoading}
+            isDarkMode={isDarkMode}
+            toggleDarkMode={toggleDarkMode}
         />
         <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.txt"/>
       </aside>
@@ -1123,6 +1157,8 @@ export function LinguaLecta() {
             }
           }} 
           onUpdateBook={handleUpdateBook} 
+          isDarkMode={isDarkMode}
+          toggleDarkMode={toggleDarkMode}
         />
       </main>
 
