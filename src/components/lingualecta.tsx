@@ -154,6 +154,7 @@ function ReaderView({
   const sentenceCharStarts = useRef<number[]>([]);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [isCoverLandscape, setIsCoverLandscape] = useState(false);
+  const [prefetchedAudio, setPrefetchedAudio] = useState<{ sentenceIndex: number; dataUri: string | null }>({ sentenceIndex: -1, dataUri: null });
   
   useEffect(() => {
     let charCount = 0;
@@ -219,6 +220,7 @@ function ReaderView({
         audioRef.current.src = "";
     }
     setPlaybackState('stopped');
+    setPrefetchedAudio({ sentenceIndex: -1, dataUri: null });
     utteranceRef.current = null;
   };
 
@@ -228,7 +230,6 @@ function ReaderView({
     stopSpeech();
     
     const clampedIndex = Math.max(0, Math.min(charIndex, book.content.length - 1));
-    setCurrentCharIndex(clampedIndex);
     
     let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > clampedIndex) - 1;
     if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
@@ -237,6 +238,7 @@ function ReaderView({
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx];
     const offsetInSentence = clampedIndex - sentenceStartChar;
     
+    setCurrentCharIndex(clampedIndex);
     setCurrentSentenceIndex(sentenceIdx);
     
     if(andPlay){
@@ -282,6 +284,25 @@ function ReaderView({
     }
   };
 
+  const prefetchNextSentence = async (nextSentenceIndex: number) => {
+    if (!book || nextSentenceIndex >= sentences.length) return;
+  
+    const nextSentenceText = sentences[nextSentenceIndex]?.trim();
+    if (!nextSentenceText) {
+      // If the next sentence is empty, try the one after that.
+      prefetchNextSentence(nextSentenceIndex + 1);
+      return;
+    }
+  
+    try {
+      const { audioDataUri } = await textToSpeech({ text: nextSentenceText });
+      setPrefetchedAudio({ sentenceIndex: nextSentenceIndex, dataUri: audioDataUri });
+    } catch (error) {
+      console.error("AI TTS Prefetch Error:", error);
+      // Don't show a toast for prefetch errors, as it could be disruptive.
+    }
+  };
+
   const setupUtterance = async (sentenceIdx: number, startCharInSentence: number = 0) => {
     if (!book || sentenceIdx >= sentences.length) {
         setPlaybackState('stopped');
@@ -302,38 +323,52 @@ function ReaderView({
     
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
     setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
+    setCurrentCharIndex(sentenceStartChar);
 
     if (selectedVoice === AI_VOICE_NAME) {
+      const playAudio = (dataUri: string) => {
+        if (!audioRef.current) {
+          audioRef.current = new Audio();
+        }
+        audioRef.current.src = dataUri;
+        audioRef.current.playbackRate = playbackSpeed;
+        audioRef.current.play();
+        setPlaybackState('playing');
+  
+        // Prefetch the next sentence
+        prefetchNextSentence(sentenceIdx + 1);
+  
+        audioRef.current.onended = () => {
+          const nextSentenceIndex = sentenceIdx + 1;
+          if (nextSentenceIndex < sentences.length) {
+            setCurrentSentenceIndex(nextSentenceIndex);
+            setupUtterance(nextSentenceIndex);
+          } else {
+            setPlaybackState('stopped');
+            setCurrentSentence({ start: 0, end: 0 });
+          }
+        };
+        audioRef.current.onerror = () => {
+          toast({ title: "AI Narration Error", description: "Could not play AI generated audio.", variant: "destructive" });
+          setPlaybackState('stopped');
+        };
+      };
+  
+      // Check if the audio for the current sentence was prefetched
+      if (prefetchedAudio.sentenceIndex === sentenceIdx && prefetchedAudio.dataUri) {
+        playAudio(prefetchedAudio.dataUri);
+        setPrefetchedAudio({ sentenceIndex: -1, dataUri: null }); // Clear prefetch cache
+      } else {
         setPlaybackState('loading');
         try {
-            const { audioDataUri } = await textToSpeech({ text: currentSentenceText });
-            if (!audioRef.current) {
-                audioRef.current = new Audio();
-            }
-            audioRef.current.src = audioDataUri;
-            audioRef.current.playbackRate = playbackSpeed;
-            audioRef.current.play();
-            setPlaybackState('playing');
-
-            audioRef.current.onended = () => {
-                const nextSentenceIndex = sentenceIdx + 1;
-                if (nextSentenceIndex < sentences.length) {
-                    setCurrentSentenceIndex(nextSentenceIndex);
-                    setupUtterance(nextSentenceIndex);
-                } else {
-                    setPlaybackState('stopped');
-                    setCurrentSentence({start: 0, end: 0});
-                }
-            };
-            audioRef.current.onerror = () => {
-                toast({ title: "AI Narration Error", description: "Could not play AI generated audio.", variant: "destructive" });
-                setPlaybackState('stopped');
-            }
+          const { audioDataUri } = await textToSpeech({ text: currentSentenceText });
+          playAudio(audioDataUri);
         } catch (error) {
-            console.error("AI TTS Error:", error);
-            toast({ title: "AI Narration Failed", description: "Could not generate audio. Check your connection or try again.", variant: "destructive" });
-            setPlaybackState('stopped');
+          console.error("AI TTS Error:", error);
+          toast({ title: "AI Narration Failed", description: "Could not generate audio. Check your connection or try again.", variant: "destructive" });
+          setPlaybackState('stopped');
         }
+      }
     } else {
         const utterance = new SpeechSynthesisUtterance(currentSentenceText);
         const voice = voices.find(v => v.name === selectedVoice);
@@ -1111,3 +1146,4 @@ export function LinguaLecta() {
     </div>
   );
 }
+
