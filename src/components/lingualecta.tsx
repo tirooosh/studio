@@ -18,6 +18,7 @@ import {
   Trash2,
   BookText,
   ChevronLeft,
+  Loader,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -61,6 +62,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { textToSpeech, TextToSpeechOutput } from '@/ai/flows/tts-flow';
 
 // Setup worker for pdf.js
 if (typeof window !== 'undefined') {
@@ -131,7 +133,7 @@ function ReaderView({
   fontSize: number,
   setFontSize: (size: number) => void,
 }) {
-  const [playbackState, setPlaybackState] = useState<'playing' | 'paused' | 'stopped'>('stopped');
+  const [playbackState, setPlaybackState] = useState<'playing' | 'paused' | 'stopped' | 'loading'>('stopped');
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [pitch, setPitch] = useState(1);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -140,14 +142,27 @@ function ReaderView({
   const [currentSentence, setCurrentSentence] = useState({start: 0, end: 0});
   const [currentCharIndex, setCurrentCharIndex] = useState(0);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  
+  const AI_VOICE_NAME = "Premium AI Voice (Online)";
 
-  const [sentences, setSentences] = useState<string[]>([]);
-  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+  const sentences = book?.content.match(/[^.!?\n]+[.!?\n]*/g) || [];
   const sentenceCharStarts = useRef<number[]>([]);
+  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [isCoverLandscape, setIsCoverLandscape] = useState(false);
   
+  useEffect(() => {
+    let charCount = 0;
+    const starts = sentences.map(s => {
+        const start = charCount;
+        charCount += s.length;
+        return start;
+    });
+    sentenceCharStarts.current = starts;
+  }, [sentences]);
+
   useEffect(() => {
     if (book?.coverImage) {
         const img = new window.Image();
@@ -169,7 +184,6 @@ function ReaderView({
 
         const englishVoices = availableVoices.filter(v => v.lang.startsWith('en'));
         
-        // Prefer a high-quality, calming voice if available
         const calmingVoice = availableVoices.find(v => v.name === 'Google UK English Male') || 
                              availableVoices.find(v => v.name.includes('Zira')) ||
                              englishVoices.find(v => v.name.toLowerCase().includes('male'));
@@ -180,7 +194,6 @@ function ReaderView({
       }
     };
     
-    // onvoiceschanged is not reliable, especially on first load.
     if(window.speechSynthesis.getVoices().length > 0) {
         loadVoices();
     } else {
@@ -189,9 +202,7 @@ function ReaderView({
 
     const cleanup = () => {
         window.speechSynthesis.onvoiceschanged = null;
-        if (speechSynthesis.speaking) {
-            speechSynthesis.cancel();
-        }
+        stopSpeech();
     };
 
     return cleanup;
@@ -200,6 +211,10 @@ function ReaderView({
   const stopSpeech = () => {
     if (speechSynthesis.speaking) {
       speechSynthesis.cancel();
+    }
+    if(audioRef.current){
+        audioRef.current.pause();
+        audioRef.current.src = "";
     }
     setPlaybackState('stopped');
     utteranceRef.current = null;
@@ -219,19 +234,20 @@ function ReaderView({
     
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx];
     const offsetInSentence = clampedIndex - sentenceStartChar;
-
+    
     setCurrentSentenceIndex(sentenceIdx);
     
     if(andPlay){
-        setTimeout(() => playSpeech(sentenceIdx, offsetInSentence, true), 100);
+        setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
     }
   }
   
-  const playSpeech = (startSentence?: number, startCharInSentence?: number, forcePlay = false) => {
-    if ((playbackState === 'playing' && !forcePlay) || !book) return;
-    speechSynthesis.cancel();
+  const playSpeech = (startSentence?: number, startCharInSentence?: number) => {
+    if (playbackState === 'playing') return;
+    
+    stopSpeech();
 
-    if (speechSynthesis.paused && playbackState === 'paused' && !forcePlay) {
+    if (speechSynthesis.paused && playbackState === 'paused' && selectedVoice !== AI_VOICE_NAME) {
       speechSynthesis.resume();
       setPlaybackState('playing');
     } else {
@@ -241,34 +257,39 @@ function ReaderView({
   };
 
   const pauseSpeech = () => {
-    speechSynthesis.pause();
+    if (selectedVoice === AI_VOICE_NAME && audioRef.current) {
+        audioRef.current.pause();
+    } else {
+        speechSynthesis.pause();
+    }
     setPlaybackState('paused');
   };
 
   const handlePlayPauseClick = () => {
     if (playbackState === 'playing') {
       pauseSpeech();
+    } else if (playbackState === 'paused') {
+        if(selectedVoice === AI_VOICE_NAME && audioRef.current){
+            audioRef.current.play();
+            setPlaybackState('playing');
+        } else {
+            playSpeech();
+        }
     } else {
       playSpeech();
     }
   };
 
-  const setupUtterance = (sentenceIdx: number, startCharInSentence: number = 0) => {
-    if (sentenceIdx >= sentences.length) {
+  const setupUtterance = async (sentenceIdx: number, startCharInSentence: number = 0) => {
+    if (!book || sentenceIdx >= sentences.length) {
         setPlaybackState('stopped');
         return;
     }
-
-    let textToSpeak = "";
-    if(startCharInSentence > 0 && sentences[sentenceIdx]) {
-        textToSpeak = sentences[sentenceIdx].substring(startCharInSentence);
-    } else {
-        textToSpeak = sentences[sentenceIdx];
-    }
     
-    if (!textToSpeak || !textToSpeak.trim()) {
-        if (sentenceIdx < sentences.length - 1) {
-            const nextIndex = sentenceIdx + 1;
+    const currentSentenceText = sentences[sentenceIdx] || '';
+    if (!currentSentenceText || !currentSentenceText.trim()) {
+        const nextIndex = sentenceIdx + 1;
+        if(nextIndex < sentences.length){
             setCurrentSentenceIndex(nextIndex);
             setupUtterance(nextIndex, 0);
         } else {
@@ -276,56 +297,85 @@ function ReaderView({
         }
         return;
     };
-
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    const voice = voices.find(v => v.name === selectedVoice);
-    if (voice) utterance.voice = voice;
-    utterance.rate = playbackSpeed;
-    utterance.pitch = pitch;
-
+    
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
-    const currentSentenceText = sentences[sentenceIdx] || '';
-    
-    const charIndexOffset = startCharInSentence > 0 ? startCharInSentence : 0;
-    
-    utterance.onstart = () => {
-        setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
-        setPlaybackState('playing');
-    }
+    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
 
-    utterance.onboundary = (event) => {
-      const globalCharIndex = sentenceStartChar + charIndexOffset + event.charIndex;
-      setCurrentCharIndex(globalCharIndex);
-      if (book && book.content.length > 0) {
-        setProgress((globalCharIndex / book.content.length) * 100);
-      }
-    };
-    
-    utterance.onend = () => {
-      const nextSentenceIndex = sentenceIdx + 1;
-      if (nextSentenceIndex < sentences.length) {
-          setCurrentSentenceIndex(nextSentenceIndex);
-          setupUtterance(nextSentenceIndex);
-      } else {
-          setPlaybackState('stopped');
-          setCurrentSentence({start: 0, end: 0});
-          setProgress(100);
-          if (book) setCurrentCharIndex(book.content.length);
-          utteranceRef.current = null;
-      }
-    };
+    if (selectedVoice === AI_VOICE_NAME) {
+        setPlaybackState('loading');
+        try {
+            const { audioDataUri } = await textToSpeech({ text: currentSentenceText });
+            if (!audioRef.current) {
+                audioRef.current = new Audio();
+            }
+            audioRef.current.src = audioDataUri;
+            audioRef.current.playbackRate = playbackSpeed;
+            audioRef.current.play();
+            setPlaybackState('playing');
 
-    utterance.onerror = (event) => {
-        if (event.error === 'interrupted' || event.error === 'canceled') {
-            return;
+            audioRef.current.onended = () => {
+                const nextSentenceIndex = sentenceIdx + 1;
+                if (nextSentenceIndex < sentences.length) {
+                    setCurrentSentenceIndex(nextSentenceIndex);
+                    setupUtterance(nextSentenceIndex);
+                } else {
+                    setPlaybackState('stopped');
+                    setCurrentSentence({start: 0, end: 0});
+                }
+            };
+            audioRef.current.onerror = () => {
+                toast({ title: "AI Narration Error", description: "Could not play AI generated audio.", variant: "destructive" });
+                setPlaybackState('stopped');
+            }
+        } catch (error) {
+            console.error("AI TTS Error:", error);
+            toast({ title: "AI Narration Failed", description: "Could not generate audio. Check your connection or try again.", variant: "destructive" });
+            setPlaybackState('stopped');
         }
-        console.error("Speech Synthesis Error", event.error);
-        toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
-        setPlaybackState('stopped');
-    };
-    
-    utteranceRef.current = utterance;
-    speechSynthesis.speak(utterance);
+    } else {
+        const utterance = new SpeechSynthesisUtterance(currentSentenceText);
+        const voice = voices.find(v => v.name === selectedVoice);
+        if (voice) utterance.voice = voice;
+        utterance.rate = playbackSpeed;
+        utterance.pitch = pitch;
+
+        let charIndex = sentenceStartChar;
+        utterance.onboundary = (event) => {
+          charIndex = sentenceStartChar + event.charIndex;
+          setCurrentCharIndex(charIndex);
+          if (book.content.length > 0) {
+            setProgress((charIndex / book.content.length) * 100);
+          }
+        };
+
+        utterance.onend = () => {
+          const nextSentenceIndex = sentenceIdx + 1;
+          if (nextSentenceIndex < sentences.length) {
+              setCurrentSentenceIndex(nextSentenceIndex);
+              setupUtterance(nextSentenceIndex);
+          } else {
+              setPlaybackState('stopped');
+              setCurrentSentence({start: 0, end: 0});
+              setProgress(100);
+              setCurrentCharIndex(book.content.length);
+              utteranceRef.current = null;
+          }
+        };
+        
+        utterance.onstart = () => {
+            setPlaybackState('playing');
+        }
+
+        utterance.onerror = (event) => {
+            if (event.error === 'interrupted' || event.error === 'canceled') return;
+            console.error("Speech Synthesis Error", event.error);
+            toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
+            setPlaybackState('stopped');
+        };
+        
+        utteranceRef.current = utterance;
+        speechSynthesis.speak(utterance);
+    }
   };
 
   useEffect(() => {
@@ -345,21 +395,8 @@ function ReaderView({
     if (!book) {
       setProgress(0);
       setCurrentCharIndex(0);
-      setSentences([]);
-      sentenceCharStarts.current = [];
       return cleanup;
     };
-    
-    const contentSentences = book.content.match(/[^.!?\n]+[.!?\n]*/g) || [book.content];
-    setSentences(contentSentences);
-
-    let charCount = 0;
-    const starts = contentSentences.map(s => {
-        const start = charCount;
-        charCount += s.length;
-        return start;
-    });
-    sentenceCharStarts.current = starts;
     
     let startChar = 0;
     if (book.bookmarks && book.bookmarks.length > 0) {
@@ -388,10 +425,16 @@ function ReaderView({
   }, [book]);
 
   useEffect(() => {
-    if (playbackState !== 'playing') return;
+    if (playbackState !== 'playing' || !book) return;
 
-    const currentGlobalChar = currentCharIndex;
-    jumpTo(currentGlobalChar, true);
+    if (selectedVoice === AI_VOICE_NAME) {
+        if (audioRef.current) {
+            audioRef.current.playbackRate = playbackSpeed;
+        }
+    } else {
+      stopSpeech();
+      setTimeout(() => playSpeech(), 100);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbackSpeed, pitch, selectedVoice]);
   
@@ -408,34 +451,13 @@ function ReaderView({
 
     const playHandler = () => playSpeech();
     const pauseHandler = () => pauseSpeech();
-    const rewindSpeech = () => {
-        const targetIndex = currentCharIndex - 100 > 0 ? currentCharIndex - 100 : 0;
-        jumpTo(targetIndex, true);
-    };
-    const ffSpeech = () => {
-        jumpTo(currentCharIndex + 100, true);
-    }
-
-    const seekToHandler = (details: MediaSessionSeekToAction) => {
-      if(details.seekTime && book && book.content.length > 0) {
-          const totalDuration = book.content.length / 10; // Approximate duration
-          const seekChar = Math.floor(details.seekTime / totalDuration * book.content.length);
-          jumpTo(seekChar, true);
-      }
-    };
 
     navigator.mediaSession.setActionHandler('play', playHandler);
     navigator.mediaSession.setActionHandler('pause', pauseHandler);
-    navigator.mediaSession.setActionHandler('seekbackward', rewindSpeech);
-    navigator.mediaSession.setActionHandler('seekforward', ffSpeech);
-    navigator.mediaSession.setActionHandler('seekto', seekToHandler);
 
     return () => {
       navigator.mediaSession.setActionHandler('play', null);
       navigator.mediaSession.setActionHandler('pause', null);
-      navigator.mediaSession.setActionHandler('seekbackward', null);
-      navigator.mediaSession.setActionHandler('seekforward', null);
-      navigator.mediaSession.setActionHandler('seekto', null);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book, playbackState, currentSentenceIndex, sentences, playbackSpeed, pitch, selectedVoice]);
@@ -618,7 +640,7 @@ function ReaderView({
           </Button>
 
           <Button size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-            {playbackState === 'playing' ? <Pause className="h-8 w-8 md:h-10 md:w-10" /> : <Play className="h-8 w-8 md:h-10 md:w-10" />}
+            {playbackState === 'playing' ? <Pause className="h-8 w-8 md:h-10 md:w-10" /> : playbackState === 'loading' ? <Loader className="h-8 w-8 md:h-10 md:w-10 animate-spin" /> : <Play className="h-8 w-8 md:h-10 md:w-10" />}
           </Button>
             
           <Popover>
@@ -652,6 +674,7 @@ function ReaderView({
                       <SelectValue placeholder="Select a voice" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={AI_VOICE_NAME} className="text-base font-semibold">{AI_VOICE_NAME}</SelectItem>
                       {voices.map(voice => (
                         <SelectItem key={voice.name} value={voice.name} className="text-base">{voice.name} ({voice.lang})</SelectItem>
                       ))}
@@ -661,10 +684,12 @@ function ReaderView({
                     <Label htmlFor="speed-slider" className="text-lg">Speed ({playbackSpeed.toFixed(1)}x)</Label>
                     <Slider id="speed-slider" min={0.5} max={3} step={0.1} value={[playbackSpeed]} onValueChange={([val]) => setPlaybackSpeed(val)} />
                   </div>
-                  <div className="grid gap-2 mt-2">
-                    <Label htmlFor="pitch-slider" className="text-lg">Pitch ({pitch.toFixed(1)})</Label>
-                    <Slider id="pitch-slider" min={0.5} max={2} step={0.1} value={[pitch]} onValueChange={([val]) => setPitch(val)} />
-                  </div>
+                  { selectedVoice !== AI_VOICE_NAME && 
+                    <div className="grid gap-2 mt-2">
+                        <Label htmlFor="pitch-slider" className="text-lg">Pitch ({pitch.toFixed(1)})</Label>
+                        <Slider id="pitch-slider" min={0.5} max={2} step={0.1} value={[pitch]} onValueChange={([val]) => setPitch(val)} />
+                    </div>
+                  }
                 </div>
               </div>
             </PopoverContent>
