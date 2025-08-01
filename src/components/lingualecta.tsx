@@ -300,10 +300,11 @@ function ReaderView({
     };
 
     utterance.onerror = (event) => {
-        console.error("Speech Synthesis Error", event.error);
-        if (event.error !== 'interrupted' && event.error !== 'canceled') {
-          toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
+        if (event.error === 'interrupted' || event.error === 'canceled') {
+            return;
         }
+        console.error("Speech Synthesis Error", event.error);
+        toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
         setPlaybackState('stopped');
     };
     
