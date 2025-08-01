@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useRef, useEffect, type ChangeEvent } from 'react';
@@ -52,6 +53,7 @@ import {
 } from '@/components/ui/select';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface BookCardProps {
   book: Book;
@@ -154,10 +156,22 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
     stopSpeech();
     // Timeout ensures cancel() completes before speak() is called
     setTimeout(() => {
-      if(book) setupUtterance(book);
+      if(book) setupUtterance(book, 0);
     }, 100);
   };
   
+  const fastForwardSpeech = () => {
+    if (!book || !utteranceRef.current) return;
+    stopSpeech();
+    
+    // Not a true fast-forward, but jumps ahead ~15 seconds (approximated by character count)
+    const nextCharIndex = Math.min(currentCharIndex + 250, book.content.length - 1);
+
+    setTimeout(() => {
+        if(book) setupUtterance(book, nextCharIndex);
+    }, 100);
+  }
+
   const handlePlayPauseClick = () => {
     if (playbackState === 'playing') {
       pauseSpeech();
@@ -166,21 +180,23 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
     }
   };
 
-  const setupUtterance = (currentBook: Book) => {
-    const utterance = new SpeechSynthesisUtterance(currentBook.content);
+  const setupUtterance = (currentBook: Book, startChar: number = 0) => {
+    const utterance = new SpeechSynthesisUtterance(currentBook.content.substring(startChar));
     const voice = voices.find(v => v.name === selectedVoice);
     if (voice) utterance.voice = voice;
     utterance.rate = playbackSpeed;
     utterance.pitch = pitch;
 
     utterance.onboundary = (event) => {
-      setCurrentCharIndex(event.charIndex);
-      setProgress((event.charIndex / currentBook.content.length) * 100);
+      const globalCharIndex = startChar + event.charIndex;
+      setCurrentCharIndex(globalCharIndex);
+      setProgress((globalCharIndex / currentBook.content.length) * 100);
     };
     
     utterance.onend = () => {
       setPlaybackState('stopped');
       setProgress(100);
+      setCurrentCharIndex(currentBook.content.length);
       setTimeout(() => {
         setProgress(0);
         setCurrentCharIndex(0);
@@ -245,18 +261,22 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
     navigator.mediaSession.setActionHandler('play', playSpeech);
     navigator.mediaSession.setActionHandler('pause', pauseSpeech);
     navigator.mediaSession.setActionHandler('seekbackward', () => rewindSpeech());
+    navigator.mediaSession.setActionHandler('seekforward', () => fastForwardSpeech());
+
 
     return () => {
       navigator.mediaSession.setActionHandler('play', null);
       navigator.mediaSession.setActionHandler('pause', null);
       navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book, playbackState]);
 
 
   const SpokenText = () => {
-    if (!book || currentCharIndex === 0) return <p>{book?.content}</p>;
+    if (!book) return null;
+    if (currentCharIndex === 0) return <p>{book.content}</p>;
     const spoken = book.content.substring(0, currentCharIndex);
     const remaining = book.content.substring(currentCharIndex);
     return (<p><span className="bg-accent/30">{spoken}</span>{remaining}</p>);
@@ -322,7 +342,7 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
             <Button size="lg" className="rounded-full w-16 h-16" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
               {playbackState === 'playing' ? <Pause className="h-8 w-8" /> : <Play className="h-8 w-8" />}
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => {}} aria-label="Fast Forward" disabled>
+            <Button variant="ghost" size="icon" onClick={fastForwardSpeech} aria-label="Fast Forward">
               <FastForward />
             </Button>
           </div>
@@ -377,7 +397,28 @@ function ReaderView({ book, onOpenLibrary }: { book: Book | null, onOpenLibrary:
   );
 }
 
-const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick }: { books: Book[], onSelectBook: (book: Book) => void, onRename: (book: Book) => void, onDelete: (book: Book) => void, onImportClick: () => void}) => (
+const LibrarySkeleton = () => (
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+    {Array.from({ length: 4 }).map((_, i) => (
+      <Card key={i}>
+        <CardHeader className="p-0">
+          <Skeleton className="aspect-[3/4] w-full" />
+        </CardHeader>
+        <CardContent className="p-4">
+          <Skeleton className="h-5 w-3/4 mb-2" />
+          <Skeleton className="h-4 w-1/2" />
+        </CardContent>
+        <CardFooter className="p-4 pt-0 flex justify-between items-center">
+          <Skeleton className="h-6 w-16" />
+          <Skeleton className="h-8 w-8 rounded-full" />
+        </CardFooter>
+      </Card>
+    ))}
+  </div>
+);
+
+
+const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick, isLoading }: { books: Book[], onSelectBook: (book: Book) => void, onRename: (book: Book) => void, onDelete: (book: Book) => void, onImportClick: () => void, isLoading: boolean}) => (
   <>
     <header className="p-4 border-b flex items-center justify-between flex-shrink-0">
       <div className="flex items-center gap-2">
@@ -389,8 +430,8 @@ const LibraryContent = ({ books, onSelectBook, onRename, onDelete, onImportClick
       </Button>
     </header>
     <ScrollArea className="flex-grow">
-       {books.length > 0 ? (
-        <div className="grid grid-cols-2 gap-4 p-4">
+       {isLoading ? <LibrarySkeleton /> : books.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
             {books.map(book => (
             <BookCard
                 key={book.id}
@@ -420,11 +461,10 @@ export function LinguaLecta() {
   const [renameValue, setRenameValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const [isMounted, setIsMounted] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
   useEffect(() => {
-    setIsMounted(true);
     try {
       const storedBooks = localStorage.getItem('lingualecta-books');
       if (storedBooks) {
@@ -435,34 +475,68 @@ export function LinguaLecta() {
     } catch (error) {
       console.error("Could not load books from local storage", error);
       setBooks(mockBooks);
+      toast({
+          title: "Error loading books",
+          description: "Could not load your library. Using default books.",
+          variant: "destructive"
+      })
+    } finally {
+        setIsLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
-    if (isMounted) {
-      localStorage.setItem('lingualecta-books', JSON.stringify(books));
+    if (!isLoading) {
+      try {
+        localStorage.setItem('lingualecta-books', JSON.stringify(books));
+      } catch (error) {
+          console.error("Could not save books to local storage", error);
+          toast({
+              title: "Error saving library",
+              description: "Your changes might not be saved.",
+              variant: "destructive"
+          })
+      }
     }
-  }, [books, isMounted]);
+  }, [books, isLoading, toast]);
 
   const handleFileImport = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const newBook: Book = {
-        id: new Date().toISOString(),
-        title: file.name.replace(/\.[^/.]+$/, ""),
-        author: 'Unknown Author',
-        coverImage: 'https://placehold.co/300x400',
-        fileType: (file.name.split('.').pop()?.toUpperCase() as Book['fileType']) || 'TXT',
-        content: `This is the content of the newly imported book "${file.name}". It's ready for you to listen.`,
+      // Simulate file reading and parsing
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string || `This is the content of the newly imported book "${file.name}". It's ready for you to listen.`;
+        
+        const newBook: Book = {
+            id: new Date().toISOString(),
+            title: file.name.replace(/\.[^/.]+$/, ""),
+            author: 'Unknown Author',
+            coverImage: 'https://placehold.co/300x400',
+            fileType: (file.name.split('.').pop()?.toUpperCase() as Book['fileType']) || 'TXT',
+            content: content.substring(0, 5000), // Truncate for performance
+        };
+
+        setBooks(prev => [newBook, ...prev]);
+        toast({
+            title: "Book Imported",
+            description: `${file.name} has been added to your library.`,
+        });
+        // Automatically select new book
+        handleSelectBook(newBook);
       };
-      setBooks(prev => [newBook, ...prev]);
-      toast({
-        title: "Book Imported",
-        description: `${file.name} has been added to your library.`,
-      });
-      // Automatically select new book
-      handleSelectBook(newBook);
+      reader.onerror = () => {
+          toast({
+              title: "File Read Error",
+              description: `Could not read the file ${file.name}.`,
+              variant: "destructive"
+          });
+      };
+      // For simplicity, we'll read as text. Real implementation would need specific parsers.
+      reader.readAsText(file); 
     }
+    // Reset file input
+    if(fileInputRef.current) fileInputRef.current.value = "";
   };
   
   const handleSelectBook = (book: Book) => {
@@ -515,6 +589,7 @@ export function LinguaLecta() {
                     fileInputRef.current?.click();
                     setIsLibraryOpen(false);
                 }}
+                isLoading={isLoading}
             />
         </SheetContent>
       </Sheet>
@@ -525,7 +600,8 @@ export function LinguaLecta() {
             onSelectBook={handleSelectBook}
             onRename={handleRenameRequest}
             onDelete={handleDeleteRequest}
-            onImportClick={() => fileInputRef.current?.click()}
+            onImportClick={() => fileInputCref.current?.click()}
+            isLoading={isLoading}
         />
         <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.epub,.mobi,.docx,.txt"/>
       </aside>
@@ -570,3 +646,5 @@ export function LinguaLecta() {
     </div>
   );
 }
+
+    
