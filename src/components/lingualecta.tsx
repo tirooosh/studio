@@ -64,7 +64,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // Setup worker for pdf.js
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
 }
 
 
@@ -787,7 +787,20 @@ export function LinguaLecta() {
     } catch (error) {
       console.error('Failed to generate PDF cover:', error);
     }
-    return 'https://placehold.co/300x400';
+    // Return a local or data URI fallback
+    const fallbackCanvas = document.createElement('canvas');
+    fallbackCanvas.width = 300;
+    fallbackCanvas.height = 400;
+    const ctx = fallbackCanvas.getContext('2d');
+    if (ctx) {
+        ctx.fillStyle = '#f5f5dc'; // beige
+        ctx.fillRect(0, 0, 300, 400);
+        ctx.fillStyle = '#a0522d'; // sienna
+        ctx.font = '24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No Cover', 150, 200);
+    }
+    return fallbackCanvas.toDataURL();
   };
 
 
@@ -862,7 +875,22 @@ export function LinguaLecta() {
       } else {
         const reader = new FileReader();
         reader.onload = (e) => {
-          createBook(e.target?.result as string);
+          const fallbackCover = (() => {
+                const fallbackCanvas = document.createElement('canvas');
+                fallbackCanvas.width = 300;
+                fallbackCanvas.height = 400;
+                const ctx = fallbackCanvas.getContext('2d');
+                if (ctx) {
+                    ctx.fillStyle = '#f5f5dc'; // beige
+                    ctx.fillRect(0, 0, 300, 400);
+                    ctx.fillStyle = '#a0522d'; // sienna
+                    ctx.font = '24px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No Cover', 150, 200);
+                }
+                return fallbackCanvas.toDataURL();
+            })();
+          createBook(e.target?.result as string, fallbackCover);
         };
         reader.onerror = () => {
           toast({
