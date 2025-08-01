@@ -149,6 +149,7 @@ function ReaderView({
   const { toast } = useToast();
   
   const AI_VOICE_NAME = "Premium AI Voice (Online)";
+  const aiRequestDisabled = useRef(false);
 
   const sentences = book?.content.match(/[^.!?\n]+[.!?\n]*/g) || [];
   const sentenceCharStarts = useRef<number[]>([]);
@@ -285,7 +286,7 @@ function ReaderView({
   };
 
   const prefetchNextSentence = async (nextSentenceIndex: number) => {
-    if (!book || nextSentenceIndex >= sentences.length) return;
+    if (!book || nextSentenceIndex >= sentences.length || aiRequestDisabled.current) return;
   
     const nextSentenceText = sentences[nextSentenceIndex]?.trim();
     if (!nextSentenceText) {
@@ -326,6 +327,11 @@ function ReaderView({
     setCurrentCharIndex(sentenceStartChar);
 
     if (selectedVoice === AI_VOICE_NAME) {
+      if (aiRequestDisabled.current) {
+        setPlaybackState('stopped');
+        toast({ title: "AI Voice Disabled", description: "Rate limit reached. Please try again later or select a different voice.", variant: "destructive" });
+        return;
+      }
       const playAudio = (dataUri: string) => {
         if (!audioRef.current) {
           audioRef.current = new Audio();
@@ -365,7 +371,14 @@ function ReaderView({
           playAudio(audioDataUri);
         } catch (error) {
           console.error("AI TTS Error:", error);
-          toast({ title: "AI Narration Failed", description: "Could not generate audio. Check your connection or try again.", variant: "destructive" });
+          if (error instanceof Error && error.message.includes('429')) {
+             toast({ title: "AI Voice Rate Limit Reached", description: "You've exceeded the free requests for the AI voice. Please try again later.", variant: "destructive" });
+             aiRequestDisabled.current = true;
+             // Set a timeout to re-enable requests after some time, e.g., 5 minutes
+             setTimeout(() => { aiRequestDisabled.current = false; }, 5 * 60 * 1000);
+          } else {
+            toast({ title: "AI Narration Failed", description: "Could not generate audio. Check your connection or try again.", variant: "destructive" });
+          }
           setPlaybackState('stopped');
         }
       }
@@ -1147,3 +1160,5 @@ export function LinguaLecta() {
   );
 }
 
+
+    
