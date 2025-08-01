@@ -237,12 +237,13 @@ function ReaderView({
     if (sentenceIdx < 0) sentenceIdx = 0;
     
     const sentenceStartChar = sentenceCharStarts.current[sentenceIdx];
-    const offsetInSentence = clampedIndex - sentenceStartChar;
     
     setCurrentCharIndex(clampedIndex);
     setCurrentSentenceIndex(sentenceIdx);
-    
+    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + (sentences[sentenceIdx]?.length || 0)});
+
     if(andPlay){
+        const offsetInSentence = clampedIndex - sentenceStartChar;
         setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
     }
   }
