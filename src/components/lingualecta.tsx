@@ -329,7 +329,6 @@ function ReaderView({
   }, [currentSentence]);
 
   // Save progress
-  /*
   useEffect(() => {
     if(book && playbackState !== 'stopped') {
         const updatedBook = { ...book, lastPosition: currentCharIndex };
@@ -337,7 +336,6 @@ function ReaderView({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCharIndex]);
-  */
   
   useEffect(() => {
     if (!book) {
@@ -362,7 +360,7 @@ function ReaderView({
     });
     sentenceCharStarts.current = starts;
     
-    const startChar = 0; // book.lastPosition || 0;
+    const startChar = book.lastPosition || 0;
     setCurrentCharIndex(startChar);
     if(book.content.length > 0) {
         setProgress((startChar / book.content.length) * 100);
@@ -384,13 +382,14 @@ function ReaderView({
   }, [book]);
 
   useEffect(() => {
-    if (utteranceRef.current && playbackState === 'paused') {
+    if (playbackState === 'playing') {
         const voice = voices.find(v => v.name === selectedVoice);
-        if(voice) utteranceRef.current.voice = voice;
-        utteranceRef.current.rate = playbackSpeed;
-        utteranceRef.current.pitch = pitch;
-    } else if (utteranceRef.current && playbackState === 'playing') {
-        // Voice change requires restart
+        if(utteranceRef.current) {
+            if(voice) utteranceRef.current.voice = voice;
+            utteranceRef.current.rate = playbackSpeed;
+            utteranceRef.current.pitch = pitch;
+        }
+
         const currentGlobalChar = currentCharIndex;
         stopSpeech();
         
@@ -404,7 +403,7 @@ function ReaderView({
         setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playbackSpeed, pitch, selectedVoice]);
+  }, [playbackSpeed, pitch, selectedVoice, voices]);
   
   useEffect(() => {
     if (!book || !('mediaSession' in navigator)) return;
@@ -471,7 +470,8 @@ function ReaderView({
       <>
         {sentences.map((sentence, sIndex) => {
           const sStart = charCounter;
-          charCounter += sentence.length;
+          const sEnd = charCounter + sentence.length;
+          charCounter = sEnd;
 
           const isSpoken = currentSentence.start <= sStart && currentSentence.end > sStart;
 
@@ -964,9 +964,7 @@ export function LinguaLecta() {
         <ReaderView 
           book={selectedBook} 
           onOpenLibrary={() => {
-            if (selectedBook) {
-              setSelectedBook(null);
-            }
+            setSelectedBook(null);
             if(!selectedBook){
                 setIsLibraryOpen(true);
             }
