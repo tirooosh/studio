@@ -120,12 +120,16 @@ function ReaderView({
   onUpdateBook,
   isDarkMode,
   toggleDarkMode,
+  fontSize,
+  setFontSize,
 }: { 
   book: Book | null, 
   onOpenLibrary: () => void,
   onUpdateBook: (book: Book) => void,
   isDarkMode: boolean,
   toggleDarkMode: (checked: boolean) => void,
+  fontSize: number,
+  setFontSize: (size: number) => void,
 }) {
   const [playbackState, setPlaybackState] = useState<'playing' | 'paused' | 'stopped'>('stopped');
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -201,7 +205,7 @@ function ReaderView({
     utteranceRef.current = null;
   };
 
-  const jumpTo = (charIndex: number, andPlay = true) => {
+  const jumpTo = (charIndex: number, andPlay = false) => {
     if (!book || !sentences.length) return;
     
     stopSpeech();
@@ -218,7 +222,6 @@ function ReaderView({
 
     setCurrentSentenceIndex(sentenceIdx);
     
-    // Timeout to ensure cancel() has time to process fully
     if(andPlay){
         setTimeout(() => playSpeech(sentenceIdx, offsetInSentence, true), 100);
     }
@@ -407,17 +410,17 @@ function ReaderView({
     const pauseHandler = () => pauseSpeech();
     const rewindSpeech = () => {
         const targetIndex = currentCharIndex - 100 > 0 ? currentCharIndex - 100 : 0;
-        jumpTo(targetIndex);
+        jumpTo(targetIndex, true);
     };
     const ffSpeech = () => {
-        jumpTo(currentCharIndex + 100);
+        jumpTo(currentCharIndex + 100, true);
     }
 
     const seekToHandler = (details: MediaSessionSeekToAction) => {
       if(details.seekTime && book && book.content.length > 0) {
           const totalDuration = book.content.length / 10; // Approximate duration
           const seekChar = Math.floor(details.seekTime / totalDuration * book.content.length);
-          jumpTo(seekChar);
+          jumpTo(seekChar, true);
       }
     };
 
@@ -508,12 +511,12 @@ function ReaderView({
        <header className="p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10 h-20 md:h-24">
         <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onOpenLibrary} className="flex items-center text-base p-2 -ml-2 md:p-4">
-                <ChevronLeft className="h-6 w-6 mr-1" />
-                <span className="hidden md:inline">Back to Library</span>
+                <ChevronLeft className="h-6 w-6 md:h-7 md:w-7 mr-1" />
+                <span className="hidden md:inline text-lg">Back to Library</span>
             </Button>
         </div>
         <div className="text-center">
-            <h2 className="font-semibold truncate max-w-[200px] md:max-w-md text-base md:text-lg">{book?.title}</h2>
+            <h2 className="font-semibold truncate max-w-[200px] md:max-w-md text-base md:text-xl">{book?.title}</h2>
         </div>
         <Button variant="ghost" size="icon" onClick={addBookmark} className="h-12 w-12 md:h-14 md:w-14">
             <Bookmark className="h-6 w-6 md:h-7 md:w-7"/>
@@ -560,7 +563,11 @@ function ReaderView({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="content">
-              <article ref={contentRef} className="prose dark:prose-invert max-w-none text-foreground/90 leading-relaxed text-base md:text-lg">
+              <article 
+                ref={contentRef} 
+                className="prose dark:prose-invert max-w-none text-foreground/90 leading-relaxed text-base md:text-lg"
+                style={{ fontSize: `${fontSize}%` }}
+              >
                 <SpokenText />
               </article>
             </TabsContent>
@@ -606,10 +613,13 @@ function ReaderView({
             <Progress value={progress} className="h-2 w-full max-w-lg" />
         </div>
         <div className="max-w-lg mx-auto flex items-center justify-around gap-2 w-full">
-            <div className="w-16 md:w-20"></div>
-            <Button size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-              {playbackState === 'playing' ? <Pause className="h-8 w-8 md:h-10 md:w-10" /> : <Play className="h-8 w-8 md:h-10 md:w-10" />}
-            </Button>
+          <Button variant="ghost" size="icon" className="h-16 w-16 md:h-20 md:w-20" aria-label="Add Bookmark" onClick={addBookmark}>
+            <Bookmark className="h-7 w-7 md:h-8 md:w-8" />
+          </Button>
+
+          <Button size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
+            {playbackState === 'playing' ? <Pause className="h-8 w-8 md:h-10 md:w-10" /> : <Play className="h-8 w-8 md:h-10 md:w-10" />}
+          </Button>
             
           <Popover>
             <PopoverTrigger asChild>
@@ -627,11 +637,16 @@ function ReaderView({
                 </div>
                 <div className="grid gap-4 text-base">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="dark-mode-switch" className="text-base">Dark Mode</Label>
+                    <Label htmlFor="dark-mode-switch" className="text-lg">Dark Mode</Label>
                     <Switch id="dark-mode-switch" checked={isDarkMode} onCheckedChange={toggleDarkMode} />
                   </div>
                   <Separator />
-                  <Label htmlFor="voice-select" className="text-base">Voice</Label>
+                  <div className="grid gap-2 mt-2">
+                    <Label htmlFor="font-size-slider" className="text-lg">Font Size ({fontSize}%)</Label>
+                    <Slider id="font-size-slider" min={50} max={200} step={10} value={[fontSize]} onValueChange={([val]) => setFontSize(val)} />
+                  </div>
+                   <Separator />
+                  <Label htmlFor="voice-select" className="text-lg">Voice</Label>
                   <Select value={selectedVoice} onValueChange={setSelectedVoice}>
                     <SelectTrigger id="voice-select" className="text-base">
                       <SelectValue placeholder="Select a voice" />
@@ -643,11 +658,11 @@ function ReaderView({
                     </SelectContent>
                   </Select>
                   <div className="grid gap-2 mt-2">
-                    <Label htmlFor="speed-slider" className="text-base">Speed ({playbackSpeed.toFixed(1)}x)</Label>
+                    <Label htmlFor="speed-slider" className="text-lg">Speed ({playbackSpeed.toFixed(1)}x)</Label>
                     <Slider id="speed-slider" min={0.5} max={3} step={0.1} value={[playbackSpeed]} onValueChange={([val]) => setPlaybackSpeed(val)} />
                   </div>
                   <div className="grid gap-2 mt-2">
-                    <Label htmlFor="pitch-slider" className="text-base">Pitch ({pitch.toFixed(1)})</Label>
+                    <Label htmlFor="pitch-slider" className="text-lg">Pitch ({pitch.toFixed(1)})</Label>
                     <Slider id="pitch-slider" min={0.5} max={2} step={0.1} value={[pitch]} onValueChange={([val]) => setPitch(val)} />
                   </div>
                 </div>
@@ -757,6 +772,7 @@ export function LinguaLecta() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [fontSize, setFontSize] = useState(100);
 
   useEffect(() => {
     
@@ -769,6 +785,11 @@ export function LinguaLecta() {
     } else {
       document.documentElement.classList.remove('dark');
       setIsDarkMode(false);
+    }
+
+    const storedFontSize = localStorage.getItem('lingualecta-fontsize');
+    if (storedFontSize) {
+        setFontSize(parseInt(storedFontSize, 10));
     }
 
 
@@ -806,6 +827,11 @@ export function LinguaLecta() {
       }
     }
   }, [books, isLoading, toast]);
+  
+  const handleSetFontSize = (size: number) => {
+    setFontSize(size);
+    localStorage.setItem('lingualecta-fontsize', size.toString());
+  };
 
   const toggleDarkMode = (checked: boolean) => {
     setIsDarkMode(checked);
@@ -1003,6 +1029,8 @@ export function LinguaLecta() {
           onUpdateBook={handleUpdateBook} 
           isDarkMode={isDarkMode}
           toggleDarkMode={toggleDarkMode}
+          fontSize={fontSize}
+          setFontSize={handleSetFontSize}
         />
       ) : (
         <>
