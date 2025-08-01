@@ -16,6 +16,7 @@ import {
   Bookmark,
   Trash2,
 } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
 
 import type { Book, Bookmark as BookmarkType } from '@/lib/types';
 import { mockBooks } from '@/lib/data';
@@ -57,6 +58,11 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// Setup worker for pdf.js
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+}
 
 
 interface BookCardProps {
@@ -642,52 +648,88 @@ export function LinguaLecta() {
     }
   }, [books, isLoading, toast]);
 
-  const handleFileImport = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Simulate file reading and parsing
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
+      const fileType = (file.name.split('.').pop()?.toUpperCase() as Book['fileType']) || 'TXT';
+
+      const createBook = (content: string) => {
         if (!content) {
-            toast({
-                title: "File Read Error",
-                description: `Could not read the file ${file.name}. It might be empty.`,
-                variant: "destructive"
-            });
-            return;
+          toast({
+            title: 'File Read Error',
+            description: `Could not read the file ${file.name}. It might be empty.`,
+            variant: 'destructive',
+          });
+          return;
         }
-        
+
         const newBook: Book = {
-            id: new Date().toISOString(),
-            title: file.name.replace(/\.[^/.]+$/, ""),
-            author: 'Unknown Author',
-            coverImage: 'https://placehold.co/300x400',
-            fileType: (file.name.split('.').pop()?.toUpperCase() as Book['fileType']) || 'TXT',
-            content: content.substring(0, 5000), // Truncate for performance
-            bookmarks: [],
+          id: new Date().toISOString(),
+          title: file.name.replace(/\.[^/.]+$/, ''),
+          author: 'Unknown Author',
+          coverImage: 'https://placehold.co/300x400',
+          fileType,
+          content: content.substring(0, 10000), // Increased limit
+          bookmarks: [],
         };
 
         setBooks(prev => [newBook, ...prev]);
         toast({
-            title: "Book Imported",
-            description: `${file.name} has been added to your library.`,
+          title: 'Book Imported',
+          description: `${file.name} has been added to your library.`,
         });
-        // Automatically select new book
         handleSelectBook(newBook);
       };
-      reader.onerror = () => {
+
+      if (fileType === 'PDF') {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            if (!e.target?.result) throw new Error("File reading failed");
+            const loadingTask = pdfjsLib.getDocument(new Uint8Array(e.target.result as ArrayBuffer));
+            const pdf = await loadingTask.promise;
+            let fullText = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const textContent = await page.getTextContent();
+              const pageText = textContent.items.map(item => (item as any).str).join(' ');
+              fullText += pageText + '\n\n';
+            }
+            createBook(fullText);
+          } catch (error) {
+            console.error('Error parsing PDF:', error);
+            toast({
+              title: 'PDF Parse Error',
+              description: `Could not parse the PDF file ${file.name}.`,
+              variant: 'destructive',
+            });
+          }
+        };
+        reader.onerror = () => {
           toast({
-              title: "File Read Error",
-              description: `Could not read the file ${file.name}.`,
-              variant: "destructive"
+            title: 'File Read Error',
+            description: `Could not read the file ${file.name}.`,
+            variant: 'destructive',
           });
-      };
-      // For simplicity, we'll read as text. Real implementation would need specific parsers.
-      reader.readAsText(file); 
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          createBook(e.target?.result as string);
+        };
+        reader.onerror = () => {
+          toast({
+            title: 'File Read Error',
+            description: `Could not read the file ${file.name}.`,
+            variant: 'destructive',
+          });
+        };
+        reader.readAsText(file);
+      }
     }
     // Reset file input
-    if(fileInputRef.current) fileInputRef.current.value = "";
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
   
   const handleSelectBook = (book: Book) => {
