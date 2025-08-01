@@ -149,8 +149,12 @@ function ReaderView({
         setSelectedVoice(defaultVoice?.name);
       }
     };
-    loadVoices();
+    // onvoiceschanged is not reliable, especially on first load.
+    if(window.speechSynthesis.getVoices().length > 0) {
+        loadVoices();
+    }
     window.speechSynthesis.onvoiceschanged = loadVoices;
+
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
     };
@@ -167,26 +171,24 @@ function ReaderView({
 
   const jumpTo = (charIndex: number) => {
     if (!book) return;
+    const clampedIndex = Math.max(0, Math.min(charIndex, book.content.length - 1));
     stopSpeech();
-    setCurrentCharIndex(charIndex);
+    setCurrentCharIndex(clampedIndex);
     // Timeout to ensure cancel() has time to process fully
-    setTimeout(() => setupUtterance(book, charIndex), 100);
+    setTimeout(() => setupUtterance(book, clampedIndex), 100);
   }
   
   const playSpeech = (startChar?: number) => {
-    if (utteranceRef.current === null) {
-      if (book) {
-        setupUtterance(book, startChar ?? currentCharIndex);
-      }
-      return;
-    }
+    if (playbackState === 'playing') return;
 
     if (speechSynthesis.paused && playbackState === 'paused') {
       speechSynthesis.resume();
+      setPlaybackState('playing');
     } else {
-      speechSynthesis.speak(utteranceRef.current);
+      if (book) {
+        setupUtterance(book, startChar ?? currentCharIndex);
+      }
     }
-    setPlaybackState('playing');
   };
 
   const pauseSpeech = () => {
@@ -195,12 +197,11 @@ function ReaderView({
   };
 
   const rewindSpeech = () => {
-    jumpTo(Math.max(0, currentCharIndex - 250)); // Rewind ~15s
+    jumpTo(currentCharIndex - 250); // Rewind ~15s
   };
   
   const fastForwardSpeech = () => {
-    if (!book) return;
-    jumpTo(Math.min(currentCharIndex + 250, book.content.length - 1));
+    jumpTo(currentCharIndex + 250);
   }
 
   const handlePlayPauseClick = () => {
@@ -226,11 +227,14 @@ function ReaderView({
 
     utterance.onboundary = (event) => {
       const globalCharIndex = startChar + event.charIndex;
-      const globalCharLength = event.charLength;
+      // Use charLength from utterance if event doesn't provide it
+      const globalCharLength = event.charLength || (utterance.text.substring(event.charIndex).split(/\s|[,.?!;:]/)[0] || "").length;
       
       setCurrentCharIndex(globalCharIndex);
       setCurrentWord({start: globalCharIndex, end: globalCharIndex + globalCharLength});
-      setProgress((globalCharIndex / currentBook.content.length) * 100);
+      if (currentBook.content.length > 0) {
+        setProgress((globalCharIndex / currentBook.content.length) * 100);
+      }
     };
     
     utterance.onend = () => {
@@ -239,15 +243,23 @@ function ReaderView({
       // Don't reset to 0, show completion
       setProgress(100);
       setCurrentCharIndex(currentBook.content.length);
+      utteranceRef.current = null;
+    };
+
+    utterance.onerror = (event) => {
+        console.error("Speech Synthesis Error", event.error);
+        toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
+        setPlaybackState('stopped');
     };
     
     utteranceRef.current = utterance;
-    playSpeech();
+    speechSynthesis.speak(utterance);
+    setPlaybackState('playing');
   };
 
   useEffect(() => {
     if (contentRef.current && currentWord.end > 0) {
-      const highlightElement = contentRef.current.querySelector(`[data-char-index='${currentWord.start}']`);
+      const highlightElement = contentRef.current.querySelector(`[data-char-start='${currentWord.start}']`);
       if (highlightElement) {
         highlightElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
@@ -309,7 +321,7 @@ function ReaderView({
     navigator.mediaSession.setActionHandler('seekbackward', () => rewindSpeech());
     navigator.mediaSession.setActionHandler('seekforward', () => fastForwardSpeech());
     navigator.mediaSession.setActionHandler('seekto', (details) => {
-        if(details.seekTime && book) {
+        if(details.seekTime && book && book.content.length > 0) {
             const seekChar = Math.floor((details.seekTime / book.content.length) * book.content.length);
             jumpTo(seekChar);
         }
@@ -352,32 +364,36 @@ function ReaderView({
     if (!book) return null;
 
     let charCounter = 0;
-    const words = book.content.split(/(\s+)/); // Split by whitespace, keeping delimiters
+    // Split by words and capture whitespace
+    const parts = book.content.split(/(\s+)/);
 
     return (
-        <p>
-            {words.map((word, index) => {
-                const start = charCounter;
-                const end = start + word.length;
-                charCounter = end;
+      <p>
+        {parts.map((part, index) => {
+          const start = charCounter;
+          charCounter += part.length;
+          
+          if (/\s+/.test(part)) {
+            return <span key={index}>{part}</span>;
+          }
 
-                const isSpoken = start < currentWord.end && end > currentWord.start;
-
-                return (
-                    <span
-                        key={index}
-                        data-char-index={start}
-                        className={cn({
-                            'bg-accent/30': isSpoken
-                        })}
-                    >
-                        {word}
-                    </span>
-                );
-            })}
-        </p>
+          const isSpoken = start >= currentWord.start && start < currentWord.end;
+          
+          return (
+            <span
+              key={index}
+              data-char-start={start}
+              className={cn({
+                'bg-accent/30': isSpoken,
+              })}
+            >
+              {part}
+            </span>
+          );
+        })}
+      </p>
     );
-};
+  };
 
   if (!book) {
     return (
@@ -669,7 +685,7 @@ export function LinguaLecta() {
           author: 'Unknown Author',
           coverImage: 'https://placehold.co/300x400',
           fileType,
-          content: content.substring(0, 10000), // Increased limit
+          content: content,
           bookmarks: [],
         };
 
