@@ -372,7 +372,7 @@ function ReaderView({
           playAudio(audioDataUri);
         } catch (error) {
           console.error("AI TTS Error:", error);
-          if (error instanceof Error && error.message.includes('429')) {
+          if (error instanceof Error && (error.message.includes('429') || (error.cause as any)?.message.includes('429'))) {
              toast({ title: "AI Voice Rate Limit Reached", description: "You've exceeded the free requests for the AI voice. Please try again later.", variant: "destructive" });
              aiRequestDisabled.current = true;
              // Set a timeout to re-enable requests after some time, e.g., 5 minutes
@@ -479,12 +479,13 @@ function ReaderView({
     if (playbackState !== 'playing' || !book) return;
 
     if (selectedVoice === AI_VOICE_NAME) {
-        if (audioRef.current) {
-            audioRef.current.playbackRate = playbackSpeed;
-        }
-    } else {
+      if (audioRef.current) {
+        audioRef.current.playbackRate = playbackSpeed;
+      }
+    } else if (utteranceRef.current) {
+      // For standard voices, we have to restart the utterance to change speed/pitch
       stopSpeech();
-      setTimeout(() => playSpeech(), 100);
+      setTimeout(() => playSpeech(), 50);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbackSpeed, pitch, selectedVoice]);
