@@ -327,15 +327,6 @@ function ReaderView({
       }
     }
   }, [currentSentence]);
-
-  // Save progress
-  useEffect(() => {
-    if(book && playbackState !== 'stopped') {
-        const updatedBook = { ...book, lastPosition: currentCharIndex };
-        onUpdateBook(updatedBook);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCharIndex]);
   
   useEffect(() => {
     if (!book) {
@@ -360,7 +351,14 @@ function ReaderView({
     });
     sentenceCharStarts.current = starts;
     
-    const startChar = book.lastPosition || 0;
+    let startChar = 0;
+    if (book.bookmarks && book.bookmarks.length > 0) {
+        const latestBookmark = book.bookmarks.reduce((latest, current) => {
+            return new Date(latest.createdAt) > new Date(current.createdAt) ? latest : current;
+        });
+        startChar = latestBookmark.charIndex;
+    }
+    
     setCurrentCharIndex(startChar);
     if(book.content.length > 0) {
         setProgress((startChar / book.content.length) * 100);

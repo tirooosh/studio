@@ -13,5 +13,4 @@ export type Book = {
   fileType: 'PDF' | 'EPUB' | 'MOBI' | 'DOCX' | 'TXT';
   content: string;
   bookmarks?: Bookmark[];
-  lastPosition?: number;
 }
