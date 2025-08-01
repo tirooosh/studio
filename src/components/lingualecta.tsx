@@ -241,6 +241,9 @@ function ReaderView({
     setCurrentCharIndex(clampedIndex);
     setCurrentSentenceIndex(sentenceIdx);
     setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + (sentences[sentenceIdx]?.length || 0)});
+    if(book.content.length > 0) {
+        setProgress((clampedIndex / book.content.length) * 100);
+    }
 
     if(andPlay){
         const offsetInSentence = clampedIndex - sentenceStartChar;
@@ -484,11 +487,24 @@ function ReaderView({
       }
     } else if (utteranceRef.current) {
       // For standard voices, we have to restart the utterance to change speed/pitch
+      const currentText = utteranceRef.current.text;
+      const charOffset = currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0);
+
       stopSpeech();
-      setTimeout(() => playSpeech(), 50);
+      // A brief timeout allows the speech synthesizer to clear its queue.
+      setTimeout(() => {
+        // We call playSpeech with the current sentence index to resume correctly.
+        playSpeech(currentSentenceIndex, charOffset);
+      }, 50);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playbackSpeed, pitch, selectedVoice]);
+  }, [playbackSpeed, pitch]);
+  
+  useEffect(() => {
+    // When the selected voice changes, stop any current playback
+    // and let the user restart it with the new voice.
+    stopSpeech();
+  }, [selectedVoice]);
   
   useEffect(() => {
     if (!book || !('mediaSession' in navigator)) return;
@@ -526,7 +542,6 @@ function ReaderView({
     const updatedBookmarks = [...(book.bookmarks || []), newBookmark];
     onUpdateBook({ ...book, bookmarks: updatedBookmarks });
     toast({ title: "Bookmark added!" });
-    jumpTo(newBookmark.charIndex, true);
   };
 
   const deleteBookmark = (bookmarkId: string) => {
@@ -1164,3 +1179,4 @@ export function LinguaLecta() {
 
 
     
+
