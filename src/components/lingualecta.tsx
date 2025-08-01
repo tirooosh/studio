@@ -247,7 +247,7 @@ function ReaderView({
 
     if(andPlay){
         const offsetInSentence = clampedIndex - sentenceStartChar;
-        setTimeout(() => playSpeech(sentenceIdx, offsetInSentence), 100);
+        playSpeech(sentenceIdx, offsetInSentence);
     }
   }
   
@@ -285,7 +285,7 @@ function ReaderView({
             playSpeech();
         }
     } else {
-      playSpeech();
+      playSpeech(currentSentenceIndex, currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0));
     }
   };
 
@@ -375,7 +375,8 @@ function ReaderView({
           playAudio(audioDataUri);
         } catch (error) {
           console.error("AI TTS Error:", error);
-          if (error instanceof Error && (error.message.includes('429') || (error.cause as any)?.message.includes('429'))) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (errorMessage.includes('429')) {
              toast({ title: "AI Voice Rate Limit Reached", description: "You've exceeded the free requests for the AI voice. Please try again later.", variant: "destructive" });
              aiRequestDisabled.current = true;
              // Set a timeout to re-enable requests after some time, e.g., 5 minutes
@@ -460,19 +461,7 @@ function ReaderView({
         startChar = latestBookmark.charIndex;
     }
     
-    setCurrentCharIndex(startChar);
-    if(book.content.length > 0) {
-        setProgress((startChar / book.content.length) * 100);
-    } else {
-        setProgress(0);
-    }
-    
-    let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > startChar) - 1;
-    if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
-    if (sentenceIdx < 0) sentenceIdx = 0;
-    setCurrentSentenceIndex(sentenceIdx);
-
-    setCurrentSentence({start: 0, end: 0});
+    jumpTo(startChar);
     
     return cleanup;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -487,7 +476,6 @@ function ReaderView({
       }
     } else if (utteranceRef.current) {
       // For standard voices, we have to restart the utterance to change speed/pitch
-      const currentText = utteranceRef.current.text;
       const charOffset = currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0);
 
       stopSpeech();
@@ -517,18 +505,28 @@ function ReaderView({
     
     navigator.mediaSession.playbackState = playbackState === 'playing' ? 'playing' : 'paused';
 
-    const playHandler = () => playSpeech();
-    const pauseHandler = () => pauseSpeech();
+    const playHandler = () => handlePlayPauseClick();
+    const pauseHandler = () => handlePlayPauseClick();
 
     navigator.mediaSession.setActionHandler('play', playHandler);
     navigator.mediaSession.setActionHandler('pause', pauseHandler);
+    navigator.mediaSession.setActionHandler('seekbackward', () => {
+       const newCharIndex = Math.max(0, currentCharIndex - 100);
+       jumpTo(newCharIndex, playbackState === 'playing');
+    });
+    navigator.mediaSession.setActionHandler('seekforward', () => {
+       const newCharIndex = Math.min(book.content.length - 1, currentCharIndex + 100);
+       jumpTo(newCharIndex, playbackState === 'playing');
+    });
 
     return () => {
       navigator.mediaSession.setActionHandler('play', null);
       navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book, playbackState, currentSentenceIndex, sentences, playbackSpeed, pitch, selectedVoice]);
+  }, [book, playbackState, currentSentenceIndex, sentences, playbackSpeed, pitch, selectedVoice, currentCharIndex]);
 
   const addBookmark = () => {
     if (!book) return;
@@ -1179,4 +1177,5 @@ export function LinguaLecta() {
 
 
     
+
 
