@@ -62,8 +62,6 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { textToSpeech } from '@/ai/flows/tts-flow';
-import type { TextToSpeechOutput } from '@/ai/schemas/tts-schemas';
 
 
 // Setup worker for pdf.js
@@ -135,7 +133,7 @@ function ReaderView({
   fontSize: number,
   setFontSize: (size: number) => void,
 }) {
-  const [playbackState, setPlaybackState] = useState<'playing' | 'paused' | 'stopped' | 'loading'>('stopped');
+  const [playbackState, setPlaybackState] = useState<'playing' | 'paused' | 'stopped'>('stopped');
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [pitch, setPitch] = useState(1);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -144,18 +142,13 @@ function ReaderView({
   const [currentSentence, setCurrentSentence] = useState({start: 0, end: 0});
   const [currentCharIndex, setCurrentCharIndex] = useState(0);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   
-  const AI_VOICE_NAME = "Premium AI Voice (Online)";
-  const aiRequestDisabled = useRef(false);
-
   const sentences = book?.content.match(/[^.!?\n]+[.!?\n]*/g) || [];
   const sentenceCharStarts = useRef<number[]>([]);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [isCoverLandscape, setIsCoverLandscape] = useState(false);
-  const [prefetchedAudio, setPrefetchedAudio] = useState<{ sentenceIndex: number; dataUri: string | null }>({ sentenceIndex: -1, dataUri: null });
   
   useEffect(() => {
     let charCount = 0;
@@ -216,12 +209,7 @@ function ReaderView({
     if (speechSynthesis.speaking) {
       speechSynthesis.cancel();
     }
-    if(audioRef.current){
-        audioRef.current.pause();
-        audioRef.current.src = "";
-    }
     setPlaybackState('stopped');
-    setPrefetchedAudio({ sentenceIndex: -1, dataUri: null });
     utteranceRef.current = null;
   };
 
@@ -256,7 +244,7 @@ function ReaderView({
     
     stopSpeech();
 
-    if (speechSynthesis.paused && playbackState === 'paused' && selectedVoice !== AI_VOICE_NAME) {
+    if (speechSynthesis.paused && playbackState === 'paused') {
       speechSynthesis.resume();
       setPlaybackState('playing');
     } else {
@@ -266,11 +254,7 @@ function ReaderView({
   };
 
   const pauseSpeech = () => {
-    if (selectedVoice === AI_VOICE_NAME && audioRef.current) {
-        audioRef.current.pause();
-    } else {
-        speechSynthesis.pause();
-    }
+    speechSynthesis.pause();
     setPlaybackState('paused');
   };
 
@@ -278,33 +262,9 @@ function ReaderView({
     if (playbackState === 'playing') {
       pauseSpeech();
     } else if (playbackState === 'paused') {
-        if(selectedVoice === AI_VOICE_NAME && audioRef.current){
-            audioRef.current.play();
-            setPlaybackState('playing');
-        } else {
-            playSpeech();
-        }
+        playSpeech();
     } else {
       playSpeech(currentSentenceIndex, currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0));
-    }
-  };
-
-  const prefetchNextSentence = async (nextSentenceIndex: number) => {
-    if (!book || nextSentenceIndex >= sentences.length || aiRequestDisabled.current) return;
-  
-    const nextSentenceText = sentences[nextSentenceIndex]?.trim();
-    if (!nextSentenceText) {
-      // If the next sentence is empty, try the one after that.
-      prefetchNextSentence(nextSentenceIndex + 1);
-      return;
-    }
-  
-    try {
-      const { audioDataUri } = await textToSpeech({ text: nextSentenceText });
-      setPrefetchedAudio({ sentenceIndex: nextSentenceIndex, dataUri: audioDataUri });
-    } catch (error) {
-      console.error("AI TTS Prefetch Error:", error);
-      // Don't show a toast for prefetch errors, as it could be disruptive.
     }
   };
 
@@ -330,107 +290,48 @@ function ReaderView({
     setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
     setCurrentCharIndex(sentenceStartChar);
 
-    if (selectedVoice === AI_VOICE_NAME) {
-      if (aiRequestDisabled.current) {
-        setPlaybackState('stopped');
-        toast({ title: "AI Voice Disabled", description: "Rate limit reached. Please try again later or select a different voice.", variant: "destructive" });
-        return;
+    const utterance = new SpeechSynthesisUtterance(currentSentenceText);
+    const voice = voices.find(v => v.name === selectedVoice);
+    if (voice) utterance.voice = voice;
+    utterance.rate = playbackSpeed;
+    utterance.pitch = pitch;
+
+    let charIndex = sentenceStartChar;
+    utterance.onboundary = (event) => {
+      charIndex = sentenceStartChar + event.charIndex;
+      setCurrentCharIndex(charIndex);
+      if (book.content.length > 0) {
+        setProgress((charIndex / book.content.length) * 100);
       }
-      const playAudio = (dataUri: string) => {
-        if (!audioRef.current) {
-          audioRef.current = new Audio();
-        }
-        audioRef.current.src = dataUri;
-        audioRef.current.playbackRate = playbackSpeed;
-        audioRef.current.play();
-        setPlaybackState('playing');
-  
-        // Prefetch the next sentence
-        prefetchNextSentence(sentenceIdx + 1);
-  
-        audioRef.current.onended = () => {
-          const nextSentenceIndex = sentenceIdx + 1;
-          if (nextSentenceIndex < sentences.length) {
-            setCurrentSentenceIndex(nextSentenceIndex);
-            setupUtterance(nextSentenceIndex);
-          } else {
-            setPlaybackState('stopped');
-            setCurrentSentence({ start: 0, end: 0 });
-          }
-        };
-        audioRef.current.onerror = () => {
-          toast({ title: "AI Narration Error", description: "Could not play AI generated audio.", variant: "destructive" });
-          setPlaybackState('stopped');
-        };
-      };
-  
-      // Check if the audio for the current sentence was prefetched
-      if (prefetchedAudio.sentenceIndex === sentenceIdx && prefetchedAudio.dataUri) {
-        playAudio(prefetchedAudio.dataUri);
-        setPrefetchedAudio({ sentenceIndex: -1, dataUri: null }); // Clear prefetch cache
+    };
+
+    utterance.onend = () => {
+      const nextSentenceIndex = sentenceIdx + 1;
+      if (nextSentenceIndex < sentences.length) {
+          setCurrentSentenceIndex(nextSentenceIndex);
+          setupUtterance(nextSentenceIndex);
       } else {
-        setPlaybackState('loading');
-        try {
-          const { audioDataUri } = await textToSpeech({ text: currentSentenceText });
-          playAudio(audioDataUri);
-        } catch (error) {
-          console.error("AI TTS Error:", error);
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          if (errorMessage.includes('429')) {
-             toast({ title: "AI Voice Rate Limit Reached", description: "You've exceeded the free requests for the AI voice. Please try again later.", variant: "destructive" });
-             aiRequestDisabled.current = true;
-             // Set a timeout to re-enable requests after some time, e.g., 5 minutes
-             setTimeout(() => { aiRequestDisabled.current = false; }, 5 * 60 * 1000);
-          } else {
-            toast({ title: "AI Narration Failed", description: "Could not generate audio. Check your connection or try again.", variant: "destructive" });
-          }
           setPlaybackState('stopped');
-        }
+          setCurrentSentence({start: 0, end: 0});
+          setProgress(100);
+          setCurrentCharIndex(book.content.length);
+          utteranceRef.current = null;
       }
-    } else {
-        const utterance = new SpeechSynthesisUtterance(currentSentenceText);
-        const voice = voices.find(v => v.name === selectedVoice);
-        if (voice) utterance.voice = voice;
-        utterance.rate = playbackSpeed;
-        utterance.pitch = pitch;
-
-        let charIndex = sentenceStartChar;
-        utterance.onboundary = (event) => {
-          charIndex = sentenceStartChar + event.charIndex;
-          setCurrentCharIndex(charIndex);
-          if (book.content.length > 0) {
-            setProgress((charIndex / book.content.length) * 100);
-          }
-        };
-
-        utterance.onend = () => {
-          const nextSentenceIndex = sentenceIdx + 1;
-          if (nextSentenceIndex < sentences.length) {
-              setCurrentSentenceIndex(nextSentenceIndex);
-              setupUtterance(nextSentenceIndex);
-          } else {
-              setPlaybackState('stopped');
-              setCurrentSentence({start: 0, end: 0});
-              setProgress(100);
-              setCurrentCharIndex(book.content.length);
-              utteranceRef.current = null;
-          }
-        };
-        
-        utterance.onstart = () => {
-            setPlaybackState('playing');
-        }
-
-        utterance.onerror = (event) => {
-            if (event.error === 'interrupted' || event.error === 'canceled') return;
-            console.error("Speech Synthesis Error", event.error);
-            toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
-            setPlaybackState('stopped');
-        };
-        
-        utteranceRef.current = utterance;
-        speechSynthesis.speak(utterance);
+    };
+    
+    utterance.onstart = () => {
+        setPlaybackState('playing');
     }
+
+    utterance.onerror = (event) => {
+        if (event.error === 'interrupted' || event.error === 'canceled') return;
+        console.error("Speech Synthesis Error", event.error);
+        toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
+        setPlaybackState('stopped');
+    };
+    
+    utteranceRef.current = utterance;
+    speechSynthesis.speak(utterance);
   };
 
   useEffect(() => {
@@ -470,12 +371,7 @@ function ReaderView({
   useEffect(() => {
     if (playbackState !== 'playing' || !book) return;
 
-    if (selectedVoice === AI_VOICE_NAME) {
-      if (audioRef.current) {
-        audioRef.current.playbackRate = playbackSpeed;
-      }
-    } else if (utteranceRef.current) {
-      // For standard voices, we have to restart the utterance to change speed/pitch
+    if (utteranceRef.current) {
       const charOffset = currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0);
 
       stopSpeech();
@@ -705,7 +601,7 @@ function ReaderView({
           </Button>
 
           <Button size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
-            {playbackState === 'playing' ? <Pause className="h-8 w-8 md:h-10 md:w-10" /> : playbackState === 'loading' ? <Loader className="h-8 w-8 md:h-10 md:w-10 animate-spin" /> : <Play className="h-8 w-8 md:h-10 md:w-10" />}
+            {playbackState === 'playing' ? <Pause className="h-8 w-8 md:h-10 md:w-10" /> : <Play className="h-8 w-8 md:h-10 md:w-10" />}
           </Button>
             
           <Popover>
@@ -739,7 +635,6 @@ function ReaderView({
                       <SelectValue placeholder="Select a voice" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={AI_VOICE_NAME} className="text-base font-semibold">{AI_VOICE_NAME}</SelectItem>
                       {voices.map(voice => (
                         <SelectItem key={voice.name} value={voice.name} className="text-base">{voice.name} ({voice.lang})</SelectItem>
                       ))}
@@ -749,12 +644,10 @@ function ReaderView({
                     <Label htmlFor="speed-slider" className="text-lg">Speed ({playbackSpeed.toFixed(1)}x)</Label>
                     <Slider id="speed-slider" min={0.5} max={3} step={0.1} value={[playbackSpeed]} onValueChange={([val]) => setPlaybackSpeed(val)} />
                   </div>
-                  { selectedVoice !== AI_VOICE_NAME && 
-                    <div className="grid gap-2 mt-2">
-                        <Label htmlFor="pitch-slider" className="text-lg">Pitch ({pitch.toFixed(1)})</Label>
-                        <Slider id="pitch-slider" min={0.5} max={2} step={0.1} value={[pitch]} onValueChange={([val]) => setPitch(val)} />
-                    </div>
-                  }
+                  <div className="grid gap-2 mt-2">
+                      <Label htmlFor="pitch-slider" className="text-lg">Pitch ({pitch.toFixed(1)})</Label>
+                      <Slider id="pitch-slider" min={0.5} max={2} step={0.1} value={[pitch]} onValueChange={([val]) => setPitch(val)} />
+                  </div>
                 </div>
               </div>
             </PopoverContent>
@@ -1177,5 +1070,6 @@ export function LinguaLecta() {
 
 
     
+
 
 
