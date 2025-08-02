@@ -139,8 +139,6 @@ function ReaderView({
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string | undefined>(undefined);
   const [progress, setProgress] = useState(0);
-  const [currentSentence, setCurrentSentence] = useState({start: 0, end: 0});
-  const [currentCharIndex, setCurrentCharIndex] = useState(0);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -148,6 +146,7 @@ function ReaderView({
   const sentences = book?.content.match(/[^.!?\n]+[.!?\n]*/g) || [];
   const sentenceCharStarts = useRef<number[]>([]);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+  const [currentCharIndex, setCurrentCharIndex] = useState(0);
   const [isCoverLandscape, setIsCoverLandscape] = useState(false);
   
   useEffect(() => {
@@ -173,6 +172,118 @@ function ReaderView({
   }, [book?.coverImage]);
 
 
+  const stopSpeech = () => {
+    if (speechSynthesis.speaking || speechSynthesis.pending) {
+      speechSynthesis.cancel();
+    }
+    setPlaybackState('stopped');
+    utteranceRef.current = null;
+  }
+
+  const handlePlayback = (action: 'play' | 'pause' | 'jump', payload?: any) => {
+    if (!book) return;
+
+    if (action === 'pause') {
+        if(speechSynthesis.speaking) speechSynthesis.pause();
+        setPlaybackState('paused');
+    } else if (action === 'play') {
+        if (speechSynthesis.paused) {
+            speechSynthesis.resume();
+            setPlaybackState('playing');
+        } else {
+            const startSentence = currentSentenceIndex;
+            const charOffset = currentCharIndex - (sentenceCharStarts.current[startSentence] || 0);
+            playSentence(startSentence, charOffset);
+        }
+    } else if (action === 'jump') {
+        const charIndex = payload?.charIndex ?? 0;
+        const shouldPlay = payload?.andPlay ?? false;
+        
+        let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > charIndex) - 1;
+        if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
+        if (sentenceIdx < 0) sentenceIdx = 0;
+        
+        setCurrentCharIndex(charIndex);
+        setCurrentSentenceIndex(sentenceIdx);
+
+        if (book.content.length > 0) {
+            setProgress((charIndex / book.content.length) * 100);
+        }
+
+        if (shouldPlay) {
+            stopSpeech();
+            playSentence(sentenceIdx);
+        } else {
+            // Even if not playing, stop current speech if jumping
+            stopSpeech();
+        }
+    }
+  };
+
+
+  const playSentence = (sentenceIdx: number, startCharInSentence: number = 0) => {
+    if (!book || sentenceIdx >= sentences.length) {
+        setPlaybackState('stopped');
+        return;
+    }
+    
+    const currentSentenceText = sentences[sentenceIdx] || '';
+    if (!currentSentenceText || !currentSentenceText.trim()) {
+        const nextIndex = sentenceIdx + 1;
+        if(nextIndex < sentences.length){
+            setCurrentSentenceIndex(nextIndex);
+            playSentence(nextIndex);
+        } else {
+            setPlaybackState('stopped');
+        }
+        return;
+    };
+    
+    const utterance = new SpeechSynthesisUtterance(currentSentenceText);
+    const voice = voices.find(v => v.name === selectedVoice);
+    if (voice) utterance.voice = voice;
+    utterance.rate = playbackSpeed;
+    utterance.pitch = pitch;
+
+    const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
+    
+    utterance.onstart = () => {
+        setPlaybackState('playing');
+        setCurrentSentenceIndex(sentenceIdx);
+    };
+
+    utterance.onboundary = (event) => {
+      const newCharIndex = sentenceStartChar + event.charIndex;
+      setCurrentCharIndex(newCharIndex);
+      if (book.content.length > 0) {
+        setProgress((newCharIndex / book.content.length) * 100);
+      }
+    };
+
+    utterance.onend = () => {
+      const nextSentenceIndex = sentenceIdx + 1;
+      if (nextSentenceIndex < sentences.length) {
+          playSentence(nextSentenceIndex);
+      } else {
+          setPlaybackState('stopped');
+          setProgress(100);
+          setCurrentCharIndex(book.content.length);
+          utteranceRef.current = null;
+      }
+    };
+    
+    utterance.onerror = (event) => {
+        if (event.error === 'interrupted' || event.error === 'canceled') return;
+        console.error("Speech Synthesis Error", event.error);
+        toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
+        setPlaybackState('stopped');
+    };
+    
+    utteranceRef.current = utterance;
+    speechSynthesis.speak(utterance);
+  };
+
+
   useEffect(() => {
     const loadVoices = () => {
       const availableVoices = window.speechSynthesis.getVoices();
@@ -191,166 +302,32 @@ function ReaderView({
       }
     };
     
-    if(window.speechSynthesis.getVoices().length > 0) {
-        loadVoices();
-    } else {
-        window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
 
     const cleanup = () => {
         window.speechSynthesis.onvoiceschanged = null;
         stopSpeech();
     };
-
     return cleanup;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  
-  const stopSpeech = () => {
-    if (speechSynthesis.speaking) {
-      speechSynthesis.cancel();
-    }
-    setPlaybackState('stopped');
-    utteranceRef.current = null;
-  };
-
-  const jumpTo = (charIndex: number, andPlay = false) => {
-    if (!book || !sentences.length) return;
-    
-    stopSpeech();
-    
-    const clampedIndex = Math.max(0, Math.min(charIndex, book.content.length - 1));
-    
-    let sentenceIdx = sentenceCharStarts.current.findIndex(start => start > clampedIndex) - 1;
-    if (sentenceIdx < -1) sentenceIdx = sentenceCharStarts.current.length - 1;
-    if (sentenceIdx < 0) sentenceIdx = 0;
-    
-    const sentenceStartChar = sentenceCharStarts.current[sentenceIdx];
-    
-    setCurrentCharIndex(clampedIndex);
-    setCurrentSentenceIndex(sentenceIdx);
-    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + (sentences[sentenceIdx]?.length || 0)});
-    if(book.content.length > 0) {
-        setProgress((clampedIndex / book.content.length) * 100);
-    }
-
-    if(andPlay){
-        // A brief timeout helps ensure the speech synthesis queue is clear before we start a new utterance.
-        setTimeout(() => playSpeech(sentenceIdx), 50);
-    }
-  }
-  
-  const playSpeech = (startSentence?: number, startCharInSentence?: number) => {
-    if (playbackState === 'playing') return;
-    
-    stopSpeech();
-
-    if (speechSynthesis.paused && playbackState === 'paused') {
-      speechSynthesis.resume();
-      setPlaybackState('playing');
-    } else {
-        const sentenceIdx = startSentence ?? currentSentenceIndex;
-        setupUtterance(sentenceIdx, startCharInSentence);
-    }
-  };
-
-  const pauseSpeech = () => {
-    speechSynthesis.pause();
-    setPlaybackState('paused');
-  };
-
-  const handlePlayPauseClick = () => {
-    if (playbackState === 'playing') {
-      pauseSpeech();
-    } else if (playbackState === 'paused') {
-        playSpeech();
-    } else {
-      playSpeech(currentSentenceIndex, currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0));
-    }
-  };
-
-  const setupUtterance = (sentenceIdx: number, startCharInSentence: number = 0) => {
-    if (!book || sentenceIdx >= sentences.length) {
-        setPlaybackState('stopped');
-        return;
-    }
-    
-    const currentSentenceText = sentences[sentenceIdx] || '';
-    if (!currentSentenceText || !currentSentenceText.trim()) {
-        const nextIndex = sentenceIdx + 1;
-        if(nextIndex < sentences.length){
-            setCurrentSentenceIndex(nextIndex);
-            setupUtterance(nextIndex, 0);
-        } else {
-            setPlaybackState('stopped');
-        }
-        return;
-    };
-    
-    const sentenceStartChar = sentenceCharStarts.current[sentenceIdx] || 0;
-    setCurrentSentence({start: sentenceStartChar, end: sentenceStartChar + currentSentenceText.length});
-    setCurrentCharIndex(sentenceStartChar);
-
-    const utterance = new SpeechSynthesisUtterance(currentSentenceText);
-    const voice = voices.find(v => v.name === selectedVoice);
-    if (voice) utterance.voice = voice;
-    utterance.rate = playbackSpeed;
-    utterance.pitch = pitch;
-
-    let charIndex = sentenceStartChar;
-    utterance.onboundary = (event) => {
-      charIndex = sentenceStartChar + event.charIndex;
-      setCurrentCharIndex(charIndex);
-      if (book.content.length > 0) {
-        setProgress((charIndex / book.content.length) * 100);
-      }
-    };
-
-    utterance.onend = () => {
-      const nextSentenceIndex = sentenceIdx + 1;
-      if (nextSentenceIndex < sentences.length) {
-          setCurrentSentenceIndex(nextSentenceIndex);
-          setupUtterance(nextSentenceIndex);
-      } else {
-          setPlaybackState('stopped');
-          setCurrentSentence({start: 0, end: 0});
-          setProgress(100);
-          setCurrentCharIndex(book.content.length);
-          utteranceRef.current = null;
-      }
-    };
-    
-    utterance.onstart = () => {
-        setPlaybackState('playing');
-    }
-
-    utterance.onerror = (event) => {
-        if (event.error === 'interrupted' || event.error === 'canceled') return;
-        console.error("Speech Synthesis Error", event.error);
-        toast({ title: "Narration Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
-        setPlaybackState('stopped');
-    };
-    
-    utteranceRef.current = utterance;
-    speechSynthesis.speak(utterance);
-  };
 
   useEffect(() => {
-    if (contentRef.current && currentSentence.end > 0) {
+    if (contentRef.current && currentSentenceIndex < sentences.length) {
       const highlightElement = contentRef.current.querySelector('.sentence-highlight');
       if (highlightElement) {
         highlightElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
-  }, [currentSentence]);
+  }, [currentSentenceIndex, sentences.length]);
   
   useEffect(() => {
-    const cleanup = () => {
-      stopSpeech();
-    };
-
+    const cleanup = () => stopSpeech();
     if (!book) {
       setProgress(0);
       setCurrentCharIndex(0);
+      setCurrentSentenceIndex(0);
       return cleanup;
     };
     
@@ -362,34 +339,26 @@ function ReaderView({
         startChar = latestBookmark.charIndex;
     }
     
-    jumpTo(startChar);
+    handlePlayback('jump', { charIndex: startChar, andPlay: false });
     
     return cleanup;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book]);
 
   useEffect(() => {
-    if (playbackState !== 'playing' || !book || !utteranceRef.current) return;
+      if (playbackState !== 'playing' || !book || !utteranceRef.current) return;
 
-    // To change speed/pitch/voice, we have to restart the current utterance.
-    const charOffset = currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0);
-    
-    stopSpeech();
+      const charOffset = currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0);
 
-    // A brief timeout allows the speech synthesizer to clear its queue before we restart.
-    setTimeout(() => {
-      playSpeech(currentSentenceIndex, charOffset);
-    }, 50);
+      stopSpeech();
+      // Use timeout to allow synth to clear queue
+      setTimeout(() => {
+          playSentence(currentSentenceIndex, charOffset);
+      }, 50);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playbackSpeed, pitch]);
-  
-  useEffect(() => {
-    // When the selected voice changes, stop any current playback
-    // and let the user restart it with the new voice.
-    stopSpeech();
-  }, [selectedVoice]);
-  
+  }, [playbackSpeed, pitch, selectedVoice]);
+
   useEffect(() => {
     if (!book || !('mediaSession' in navigator)) return;
 
@@ -401,18 +370,18 @@ function ReaderView({
     
     navigator.mediaSession.playbackState = playbackState === 'playing' ? 'playing' : 'paused';
 
-    const playHandler = () => handlePlayPauseClick();
-    const pauseHandler = () => handlePlayPauseClick();
+    const playHandler = () => handlePlayback(playbackState === 'paused' ? 'play' : 'pause');
+    const pauseHandler = () => handlePlayback('pause');
 
     navigator.mediaSession.setActionHandler('play', playHandler);
     navigator.mediaSession.setActionHandler('pause', pauseHandler);
     navigator.mediaSession.setActionHandler('seekbackward', () => {
        const newCharIndex = Math.max(0, currentCharIndex - 100);
-       jumpTo(newCharIndex, playbackState === 'playing');
+       handlePlayback('jump', { charIndex: newCharIndex, andPlay: playbackState === 'playing' });
     });
     navigator.mediaSession.setActionHandler('seekforward', () => {
        const newCharIndex = Math.min(book.content.length - 1, currentCharIndex + 100);
-       jumpTo(newCharIndex, playbackState === 'playing');
+       handlePlayback('jump', { charIndex: newCharIndex, andPlay: playbackState === 'playing' });
     });
 
     return () => {
@@ -455,15 +424,14 @@ function ReaderView({
       <>
         {sentences.map((sentence, sIndex) => {
           const sStart = charCounter;
-          const sEnd = charCounter + sentence.length;
-          charCounter = sEnd;
-
-          const isSpoken = currentSentence.start <= sStart && currentSentence.end > sStart;
+          charCounter += sentence.length;
+          
+          const isSpoken = sIndex === currentSentenceIndex && playbackState !== 'stopped';
 
           return (
             <span
               key={sIndex}
-              onClick={() => jumpTo(sStart, true)}
+              onClick={() => handlePlayback('jump', { charIndex: sStart, andPlay: true })}
               className={cn({
                 'bg-accent/30 rounded sentence-highlight cursor-pointer': isSpoken,
                 'cursor-pointer hover:bg-accent/10': !isSpoken && sentence.trim().length > 0,
@@ -565,7 +533,7 @@ function ReaderView({
                           <blockquote className="text-sm italic border-l-2 pl-2 mt-1">"{b.previewText}"</blockquote>
                         </div>
                         <div className="flex-shrink-0 flex gap-2">
-                           <Button size="sm" variant="outline" onClick={() => jumpTo(b.charIndex, true)}>
+                           <Button size="sm" variant="outline" onClick={() => handlePlayback('jump', { charIndex: b.charIndex, andPlay: true })}>
                             Go to
                           </Button>
                           <Button size="icon" variant="destructive" onClick={() => deleteBookmark(b.id)}>
@@ -600,7 +568,7 @@ function ReaderView({
             <Bookmark className="h-7 w-7 md:h-8 md:w-8" />
           </Button>
 
-          <Button size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20" onClick={handlePlayPauseClick} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
+          <Button size="lg" className="rounded-full w-16 h-16 md:w-20 md:h-20" onClick={() => handlePlayback(playbackState === 'playing' ? 'pause' : 'play')} aria-label={playbackState === 'playing' ? 'Pause' : 'Play'}>
             {playbackState === 'playing' ? <Pause className="h-8 w-8 md:h-10 md:w-10" /> : <Play className="h-8 w-8 md:h-10 md:w-10" />}
           </Button>
             
@@ -1070,6 +1038,7 @@ export function LinguaLecta() {
 
 
     
+
 
 
 
