@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster"
 export const metadata: Metadata = {
   title: 'LinguaLecta',
   description: 'Your personal text-to-speech book reader.',
-  manifest: '/manifest.webmanifest',
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({

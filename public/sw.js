@@ -1,77 +1,71 @@
-const CACHE_NAME = 'lingualecta-cache-v2';
+const CACHE_NAME = 'lingualecta-cache-v1';
+const urlsToCache = [
+  '/',
+  '/manifest.json',
+  '/styles/globals.css',
+  // Note: Add other critical assets here if needed.
+  // JS files are often hashed, making them hard to pre-cache.
+  // The service worker will cache them on-the-fly.
+];
 
-// On install, activate immediately
+// Install the service worker and cache static assets
 self.addEventListener('install', event => {
-  event.waitUntil(self.skipWaiting());
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => {
+        console.log('Opened cache');
+        return cache.addAll(urlsToCache);
+      })
+  );
 });
 
-// On activation, take control of all clients and clear old caches
+// Activate the service worker and clean up old caches
 self.addEventListener('activate', event => {
+  const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
-    (async () => {
-      await self.clients.claim();
-      const cacheNames = await caches.keys();
-      await Promise.all(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
         cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
+          if (cacheWhitelist.indexOf(cacheName) === -1) {
             return caches.delete(cacheName);
           }
         })
       );
-    })()
+    })
   );
 });
 
-// Fetch event: Cache-first strategy
+// Intercept fetch requests and serve from cache if available
 self.addEventListener('fetch', event => {
-  // Only handle GET requests
-  if (event.request.method !== 'GET') {
-    return;
-  }
-  
-  // For navigation requests (e.g., loading the page), use a network-first approach
-  // to ensure the user gets the latest version of the app shell.
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      (async () => {
-        try {
-          const networkResponse = await fetch(event.request);
-          const cache = await caches.open(CACHE_NAME);
-          cache.put(event.request, networkResponse.clone());
-          return networkResponse;
-        } catch (error) {
-          // If the network fails, try to serve from the cache
-          const cachedResponse = await caches.match(event.request);
-          return cachedResponse || caches.match('/');
-        }
-      })()
-    );
-    return;
-  }
-
-  // For all other requests (assets like JS, CSS, images), use a cache-first strategy.
   event.respondWith(
-    (async () => {
-      const cache = await caches.open(CACHE_NAME);
-      const cachedResponse = await caches.match(event.request);
-
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-
-      try {
-        const networkResponse = await fetch(event.request);
-        // Only cache successful responses
-        if (networkResponse.ok) {
-          await cache.put(event.request, networkResponse.clone());
+    caches.match(event.request)
+      .then(response => {
+        // Cache hit - return response
+        if (response) {
+          return response;
         }
-        return networkResponse;
-      } catch (error) {
-        console.error('Fetch failed:', error);
-        // We don't have a fallback for non-cached assets, so the request will fail.
-        // This is okay for a simple cache-first strategy.
-        throw error;
-      }
-    })()
+
+        // Clone the request because it's a stream
+        const fetchRequest = event.request.clone();
+
+        return fetch(fetchRequest).then(
+          response => {
+            // Check if we received a valid response
+            if (!response || response.status !== 200 || response.type !== 'basic') {
+              return response;
+            }
+
+            // Clone the response because it's also a stream
+            const responseToCache = response.clone();
+
+            caches.open(CACHE_NAME)
+              .then(cache => {
+                cache.put(event.request, responseToCache);
+              });
+
+            return response;
+          }
+        );
+      })
   );
 });
