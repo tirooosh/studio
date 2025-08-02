@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useRef, useEffect, type ChangeEvent } from 'react';
@@ -726,17 +725,6 @@ export function LinguaLecta() {
   const [fontSize, setFontSize] = useState(100);
 
   useEffect(() => {
-    // PWA Service Worker Registration
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then(registration => {
-          console.log('ServiceWorker registration successful with scope: ', registration.scope);
-        }).catch(err => {
-          console.log('ServiceWorker registration failed: ', err);
-        });
-      });
-    }
-
     const storedTheme = localStorage.getItem('lingualecta-theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -1048,6 +1036,7 @@ export function LinguaLecta() {
 
 
     
+
 
 
 

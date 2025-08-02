@@ -1,11 +1,11 @@
 {
   "name": "LinguaLecta",
   "short_name": "LinguaLecta",
-  "description": "Your personal text-to-speech book reader.",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#F5F5DC",
   "theme_color": "#8FBC8F",
+  "description": "Your personal text-to-speech book reader.",
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
