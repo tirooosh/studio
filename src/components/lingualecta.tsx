@@ -234,8 +234,8 @@ function ReaderView({
     }
 
     if(andPlay){
-        const offsetInSentence = clampedIndex - sentenceStartChar;
-        playSpeech(sentenceIdx, offsetInSentence);
+        // A brief timeout helps ensure the speech synthesis queue is clear before we start a new utterance.
+        setTimeout(() => playSpeech(sentenceIdx), 50);
     }
   }
   
@@ -268,7 +268,7 @@ function ReaderView({
     }
   };
 
-  const setupUtterance = async (sentenceIdx: number, startCharInSentence: number = 0) => {
+  const setupUtterance = (sentenceIdx: number, startCharInSentence: number = 0) => {
     if (!book || sentenceIdx >= sentences.length) {
         setPlaybackState('stopped');
         return;
@@ -369,18 +369,18 @@ function ReaderView({
   }, [book]);
 
   useEffect(() => {
-    if (playbackState !== 'playing' || !book) return;
+    if (playbackState !== 'playing' || !book || !utteranceRef.current) return;
 
-    if (utteranceRef.current) {
-      const charOffset = currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0);
+    // To change speed/pitch/voice, we have to restart the current utterance.
+    const charOffset = currentCharIndex - (sentenceCharStarts.current[currentSentenceIndex] || 0);
+    
+    stopSpeech();
 
-      stopSpeech();
-      // A brief timeout allows the speech synthesizer to clear its queue.
-      setTimeout(() => {
-        // We call playSpeech with the current sentence index to resume correctly.
-        playSpeech(currentSentenceIndex, charOffset);
-      }, 50);
-    }
+    // A brief timeout allows the speech synthesizer to clear its queue before we restart.
+    setTimeout(() => {
+      playSpeech(currentSentenceIndex, charOffset);
+    }, 50);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playbackSpeed, pitch]);
   
@@ -1070,6 +1070,7 @@ export function LinguaLecta() {
 
 
     
+
 
 
 
