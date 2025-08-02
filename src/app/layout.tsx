@@ -21,21 +21,10 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"></link>
         <link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&display=swap" rel="stylesheet" />
         <meta name="theme-color" content="#8FBC8F" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js').then(registration => {
-                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                  }, err => {
-                    console.log('ServiceWorker registration failed: ', err);
-                  });
-                });
-              }
-            `,
-          }}
-        />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="LinguaLecta" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
       <body className="font-body antialiased">
         {children}
