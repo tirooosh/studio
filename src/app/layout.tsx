@@ -20,7 +20,7 @@ const literata = Literata({
 
 export const metadata: Metadata = {
   title: 'LinguaLecta',
-  description: 'Your personal text-to-speech book reader.',
+  description: 'Your personal text-to-speech book reader, supporting multiple formats for offline listening.',
   manifest: '/manifest.json',
 };
 
