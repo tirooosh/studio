@@ -36,24 +36,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 
-const ReaderView = dynamic(() => import('@/components/reader-view').then(mod => mod.ReaderView), {
-  loading: () => <ReaderViewSkeleton />,
-});
-
-// Setup worker for pdf.js
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs`;
-}
-
-interface BeforeInstallPromptEvent extends Event {
-  readonly platforms: Array<string>;
-  readonly userChoice: Promise<{
-    outcome: 'accepted' | 'dismissed',
-    platform: string,
-  }>;
-  prompt(): Promise<void>;
-}
-
 const ReaderViewSkeleton = () => (
     <div className="flex flex-col h-dvh bg-background">
       <header className="p-4 border-b flex items-center justify-between bg-card/80 backdrop-blur-sm sticky top-0 z-10 h-20 md:h-24">
@@ -91,6 +73,23 @@ const ReaderViewSkeleton = () => (
     </div>
 );
 
+const ReaderView = dynamic(() => import('@/components/reader-view').then(mod => mod.ReaderView), {
+  loading: () => <ReaderViewSkeleton />,
+});
+
+// Setup worker for pdf.js
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs`;
+}
+
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: Array<string>;
+  readonly userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed',
+    platform: string,
+  }>;
+  prompt(): Promise<void>;
+}
 
 const LibrarySkeleton = () => (
   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6 p-4 md:p-6">
@@ -533,3 +532,5 @@ export function LinguaLecta() {
     </div>
   );
 }
+
+    
