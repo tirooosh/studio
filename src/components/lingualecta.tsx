@@ -445,14 +445,14 @@ export function LinguaLecta() {
                 onSelectBook={handleSelectBook}
                 onRename={handleRenameRequest}
                 onDelete={handleDeleteRequest}
-                onImportClick={() => fileInputref.current?.click()}
+                onImportClick={() => fileInputRef.current?.click()}
                 isLoading={isLoading}
                 isDarkMode={isDarkMode}
                 toggleDarkMode={toggleDarkMode}
                 installPrompt={installPrompt}
                 onInstall={handleInstallClick}
             />
-            <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.txt"/>
+            <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.txt,.epub,.mobi,.docx"/>
         </>
       )}
 
@@ -498,3 +498,6 @@ export function LinguaLecta() {
     
 
 
+
+
+    
