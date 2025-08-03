@@ -111,7 +111,7 @@ const AppSettings = ({ isDarkMode, toggleDarkMode, installPrompt, onInstall }: {
         <Popover>
             <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm">
-                    <Settings2 className="mr-2 h-4 w-4" /> Settings
+                    <Settings2 className="h-4 w-4 sm:mr-2" /> <span className="hidden sm:inline">Settings</span>
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-80 p-6">
@@ -150,9 +150,9 @@ const LibraryView = ({ books, onSelectBook, onRename, onDelete, onImportClick, i
         <Logo className="h-8 w-8" />
         <h1 className="font-headline text-xl font-bold">LinguaLecta</h1>
       </div>
-       <div className="flex items-center gap-2">
+       <div className="flex items-center gap-1 sm:gap-2">
         <Button onClick={onImportClick} size="sm">
-            <UploadCloud className="mr-2 h-4 w-4" /> Import
+            <UploadCloud className="h-4 w-4 sm:mr-2" /> <span className="hidden sm:inline">Import</span>
         </Button>
         <AppSettings isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} installPrompt={installPrompt} onInstall={onInstall} />
       </div>
@@ -511,5 +511,5 @@ export function LinguaLecta() {
     </div>
   );
 }
-
+    
     
