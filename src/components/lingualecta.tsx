@@ -88,7 +88,7 @@ interface BeforeInstallPromptEvent extends Event {
 
 const LibrarySkeleton = () => (
   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6 p-4 md:p-6">
-    {Array.from({ length: 12 }).map((_, i) => (
+    {Array.from({ length: 6 }).map((_, i) => (
       <Card key={i}>
         <CardHeader className="p-0">
           <Skeleton className="aspect-[3/4] w-full" />
@@ -445,7 +445,7 @@ export function LinguaLecta() {
                 onSelectBook={handleSelectBook}
                 onRename={handleRenameRequest}
                 onDelete={handleDeleteRequest}
-                onImportClick={() => fileInputRef.current?.click()}
+                onImportClick={() => fileInputref.current?.click()}
                 isLoading={isLoading}
                 isDarkMode={isDarkMode}
                 toggleDarkMode={toggleDarkMode}
@@ -496,4 +496,5 @@ export function LinguaLecta() {
     
 
     
+
 
