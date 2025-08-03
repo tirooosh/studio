@@ -9,7 +9,7 @@ import {
   BookOpen,
   Download,
 } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 import type { Book } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -76,11 +76,6 @@ const ReaderViewSkeleton = () => (
 const ReaderView = dynamic(() => import('@/components/reader-view').then(mod => mod.ReaderView), {
   loading: () => <ReaderViewSkeleton />,
 });
-
-// Setup worker for pdf.js
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs`;
-}
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: Array<string>;
@@ -288,7 +283,7 @@ export function LinguaLecta() {
     }
   };
   
-  const generatePdfCover = async (pdf: pdfjsLib.PDFDocumentProxy): Promise<string> => {
+  const generatePdfCover = async (pdf: PDFDocumentProxy): Promise<string> => {
     // Return a placeholder URL to avoid large data URIs
     return 'https://placehold.co/300x400.png';
   };
@@ -332,6 +327,12 @@ export function LinguaLecta() {
         reader.onload = async (e) => {
           try {
             if (!e.target?.result) throw new Error("File reading failed");
+
+            // Dynamically import pdfjs-dist
+            const pdfjsLib = await import('pdfjs-dist');
+            // Setup worker for pdf.js
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs`;
+
             const loadingTask = pdfjsLib.getDocument(new Uint8Array(e.target.result as ArrayBuffer));
             const pdf = await loadingTask.promise;
             
@@ -495,3 +496,4 @@ export function LinguaLecta() {
     
 
     
+
