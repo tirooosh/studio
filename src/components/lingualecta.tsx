@@ -289,22 +289,7 @@ export function LinguaLecta() {
   };
   
   const generatePdfCover = async (pdf: pdfjsLib.PDFDocumentProxy): Promise<string> => {
-    try {
-      const page = await pdf.getPage(1);
-      const viewport = page.getViewport({ scale: 1 });
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-
-      if (context) {
-        await page.render({ canvasContext: context, viewport: viewport }).promise;
-        return canvas.toDataURL();
-      }
-    } catch (error) {
-      console.error('Failed to generate PDF cover:', error);
-    }
-    // Return a placeholder URL if cover generation fails
+    // Return a placeholder URL to avoid large data URIs
     return 'https://placehold.co/300x400.png';
   };
 
