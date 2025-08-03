@@ -8,6 +8,7 @@ import {
   readdirSync,
   statSync,
 } from 'fs';
+import WorkboxPlugin from 'workbox-webpack-plugin';
 
 // Function to copy files recursively
 const copyDirSync = (src: string, dest: string) => {
@@ -61,6 +62,26 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
+  },
+   webpack: (config, { isServer, dev }) => {
+    if (!isServer && !dev) {
+      config.plugins.push(
+        new WorkboxPlugin.InjectManifest({
+          swSrc: './src/app/sw.ts',
+          swDest: '../public/sw.js',
+          // Ensure the service worker is not precaching route files,
+          // as we want to handle them with runtime caching.
+          exclude: [
+            /\.map$/, 
+            /manifest\.json$/, 
+            /next-assets-manifest\.json$/, 
+            /_next\/static\/chunks\/app\/_next\/static\//,
+            /\/_next\/static\/css\//
+          ],
+        })
+      );
+    }
+    return config;
   },
 };
 
