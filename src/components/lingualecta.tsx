@@ -304,20 +304,8 @@ export function LinguaLecta() {
     } catch (error) {
       console.error('Failed to generate PDF cover:', error);
     }
-    // Return a local or data URI fallback
-    const fallbackCanvas = document.createElement('canvas');
-    fallbackCanvas.width = 300;
-    fallbackCanvas.height = 400;
-    const ctx = fallbackCanvas.getContext('2d');
-    if (ctx) {
-        ctx.fillStyle = '#f5f5dc'; // beige
-        ctx.fillRect(0, 0, 300, 400);
-        ctx.fillStyle = '#a0522d'; // sienna
-        ctx.font = '24px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('No Cover', 150, 200);
-    }
-    return fallbackCanvas.toDataURL();
+    // Return a placeholder URL if cover generation fails
+    return 'https://placehold.co/300x400.png';
   };
 
 
@@ -392,21 +380,7 @@ export function LinguaLecta() {
       } else {
         const reader = new FileReader();
         reader.onload = (e) => {
-          const fallbackCover = (() => {
-                const fallbackCanvas = document.createElement('canvas');
-                fallbackCanvas.width = 300;
-                fallbackCanvas.height = 400;
-                const ctx = fallbackCanvas.getContext('2d');
-                if (ctx) {
-                    ctx.fillStyle = '#f5f5dc'; // beige
-                    ctx.fillRect(0, 0, 300, 400);
-                    ctx.fillStyle = '#a0522d'; // sienna
-                    ctx.font = '24px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.fillText('No Cover', 150, 200);
-                }
-                return fallbackCanvas.toDataURL();
-            })();
+          const fallbackCover = 'https://placehold.co/300x400.png';
           createBook(e.target?.result as string, fallbackCover);
         };
         reader.onerror = () => {
@@ -532,5 +506,7 @@ export function LinguaLecta() {
     </div>
   );
 }
+
+    
 
     
