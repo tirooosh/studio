@@ -71,6 +71,10 @@ const nextConfig: NextConfig = {
           swDest: '../public/sw.js',
           // Ensure the service worker is not precaching route files,
           // as we want to handle them with runtime caching.
+          // Add pdf.worker.mjs to the precache manifest.
+          include: [
+            ({asset}) => asset.name.endsWith('.mjs'),
+          ],
           exclude: [
             /\.map$/, 
             /manifest\.json$/, 
@@ -86,3 +90,5 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+    

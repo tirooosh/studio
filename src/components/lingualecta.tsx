@@ -10,6 +10,7 @@ import {
   Download,
 } from 'lucide-react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist';
 
 import type { Book } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -249,6 +250,9 @@ export function LinguaLecta() {
 
     setBooks(storedBooks);
     setIsLoading(false);
+    
+    // Setup worker for pdf.js
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs`;
 
   }, [toast]);
 
@@ -327,11 +331,6 @@ export function LinguaLecta() {
         reader.onload = async (e) => {
           try {
             if (!e.target?.result) throw new Error("File reading failed");
-
-            // Dynamically import pdfjs-dist
-            const pdfjsLib = await import('pdfjs-dist');
-            // Setup worker for pdf.js
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs`;
 
             const loadingTask = pdfjsLib.getDocument(new Uint8Array(e.target.result as ArrayBuffer));
             const pdf = await loadingTask.promise;
@@ -492,12 +491,5 @@ export function LinguaLecta() {
     </div>
   );
 }
-
-    
-
-    
-
-
-
 
     
