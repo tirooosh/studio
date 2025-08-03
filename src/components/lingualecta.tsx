@@ -288,8 +288,24 @@ export function LinguaLecta() {
   };
   
   const generatePdfCover = async (pdf: PDFDocumentProxy): Promise<string> => {
-    // Return a placeholder URL to avoid large data URIs
-    return 'https://placehold.co/300x400.png';
+    try {
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 1 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Could not get canvas context');
+      
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+      
+      return canvas.toDataURL();
+    } catch (error) {
+      console.error("Failed to generate PDF cover:", error);
+      // Return a placeholder if cover generation fails
+      return 'https://placehold.co/300x400.png';
+    }
   };
 
 
@@ -331,7 +347,7 @@ export function LinguaLecta() {
         reader.onload = async (e) => {
           try {
             if (!e.target?.result) throw new Error("File reading failed");
-
+            
             const loadingTask = pdfjsLib.getDocument(new Uint8Array(e.target.result as ArrayBuffer));
             const pdf = await loadingTask.promise;
             
@@ -491,5 +507,3 @@ export function LinguaLecta() {
     </div>
   );
 }
-
-    
