@@ -18,6 +18,7 @@ import {
   BookText,
   ChevronLeft,
   Loader,
+  Download,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -66,6 +67,15 @@ import { Switch } from "@/components/ui/switch";
 // Setup worker for pdf.js
 if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs`;
+}
+
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: Array<string>;
+  readonly userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed',
+    platform: string,
+  }>;
+  prompt(): Promise<void>;
 }
 
 
@@ -123,6 +133,8 @@ function ReaderView({
   toggleDarkMode,
   fontSize,
   setFontSize,
+  installPrompt,
+  onInstall,
 }: { 
   book: Book | null, 
   onOpenLibrary: () => void,
@@ -131,6 +143,8 @@ function ReaderView({
   toggleDarkMode: (checked: boolean) => void,
   fontSize: number,
   setFontSize: (size: number) => void,
+  installPrompt: BeforeInstallPromptEvent | null;
+  onInstall: () => void;
 }) {
   const [playbackState, setPlaybackState] = useState<'playing' | 'paused' | 'stopped'>('stopped');
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -615,6 +629,14 @@ function ReaderView({
                       <Label htmlFor="pitch-slider" className="text-lg">Pitch ({pitch.toFixed(1)})</Label>
                       <Slider id="pitch-slider" min={0.5} max={2} step={0.1} value={[pitch]} onValueChange={([val]) => setPitch(val)} />
                   </div>
+                  {installPrompt && (
+                    <>
+                      <Separator />
+                      <Button onClick={onInstall} className="mt-2 w-full text-base">
+                        <Download className="mr-2 h-5 w-5" /> Install App
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </PopoverContent>
@@ -645,7 +667,7 @@ const LibrarySkeleton = () => (
   </div>
 );
 
-const AppSettings = ({ isDarkMode, toggleDarkMode }: { isDarkMode: boolean; toggleDarkMode: (checked: boolean) => void }) => {
+const AppSettings = ({ isDarkMode, toggleDarkMode, installPrompt, onInstall }: { isDarkMode: boolean; toggleDarkMode: (checked: boolean) => void; installPrompt: BeforeInstallPromptEvent | null; onInstall: () => void; }) => {
     return (
         <Popover>
             <PopoverTrigger asChild>
@@ -666,6 +688,14 @@ const AppSettings = ({ isDarkMode, toggleDarkMode }: { isDarkMode: boolean; togg
                             <Label htmlFor="app-dark-mode-switch" className="text-base">Dark Mode</Label>
                             <Switch id="app-dark-mode-switch" checked={isDarkMode} onCheckedChange={toggleDarkMode} />
                         </div>
+                        {installPrompt && (
+                          <>
+                            <Separator />
+                            <Button onClick={onInstall} className="mt-2 w-full text-base">
+                              <Download className="mr-2 h-5 w-5" /> Install App
+                            </Button>
+                          </>
+                        )}
                     </div>
                 </div>
             </PopoverContent>
@@ -674,7 +704,7 @@ const AppSettings = ({ isDarkMode, toggleDarkMode }: { isDarkMode: boolean; togg
 };
 
 
-const LibraryView = ({ books, onSelectBook, onRename, onDelete, onImportClick, isLoading, isDarkMode, toggleDarkMode }: { books: Book[], onSelectBook: (book: Book) => void, onRename: (book: Book) => void, onDelete: (book: Book) => void, onImportClick: () => void, isLoading: boolean, isDarkMode: boolean, toggleDarkMode: (checked: boolean) => void }) => (
+const LibraryView = ({ books, onSelectBook, onRename, onDelete, onImportClick, isLoading, isDarkMode, toggleDarkMode, installPrompt, onInstall }: { books: Book[], onSelectBook: (book: Book) => void, onRename: (book: Book) => void, onDelete: (book: Book) => void, onImportClick: () => void, isLoading: boolean, isDarkMode: boolean, toggleDarkMode: (checked: boolean) => void, installPrompt: BeforeInstallPromptEvent | null; onInstall: () => void; }) => (
   <div className="h-dvh flex flex-col">
     <header className="p-4 border-b flex items-center justify-between flex-shrink-0">
       <div className="flex items-center gap-2">
@@ -685,7 +715,7 @@ const LibraryView = ({ books, onSelectBook, onRename, onDelete, onImportClick, i
         <Button onClick={onImportClick} size="sm">
             <UploadCloud className="mr-2 h-4 w-4" /> Import
         </Button>
-        <AppSettings isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+        <AppSettings isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} installPrompt={installPrompt} onInstall={onInstall} />
       </div>
     </header>
     <ScrollArea className="flex-grow">
@@ -723,6 +753,27 @@ export function LinguaLecta() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [fontSize, setFontSize] = useState(100);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      toast({ title: 'Installation successful!', description: 'LinguaLecta is now on your device.' });
+    }
+    setInstallPrompt(null);
+  };
 
   useEffect(() => {
     const storedTheme = localStorage.getItem('lingualecta-theme');
@@ -980,6 +1031,8 @@ export function LinguaLecta() {
           toggleDarkMode={toggleDarkMode}
           fontSize={fontSize}
           setFontSize={handleSetFontSize}
+          installPrompt={installPrompt}
+          onInstall={handleInstallClick}
         />
       ) : (
         <>
@@ -992,6 +1045,8 @@ export function LinguaLecta() {
                 isLoading={isLoading}
                 isDarkMode={isDarkMode}
                 toggleDarkMode={toggleDarkMode}
+                installPrompt={installPrompt}
+                onInstall={handleInstallClick}
             />
             <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileImport} accept=".pdf,.txt"/>
         </>
@@ -1033,13 +1088,3 @@ export function LinguaLecta() {
     </div>
   );
 }
-
-
-    
-
-
-
-
-
-
-
