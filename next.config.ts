@@ -8,7 +8,7 @@ import {
   readdirSync,
   statSync,
 } from 'fs';
-import WorkboxPlugin from 'workbox-webpack-plugin';
+import withPWAInit from "@ducanh2912/next-pwa";
 
 // Function to copy files recursively
 const copyDirSync = (src: string, dest: string) => {
@@ -42,9 +42,24 @@ if (!existsSync(pdfWorkerDest) || statSync(pdfWorkerSrc).mtimeMs > statSync(pdfW
   copyFileSync(pdfWorkerSrc, pdfWorkerDest);
 }
 
+const withPWA = withPWAInit({
+  dest: "public",
+  sw: "sw.js",
+  customWorkerSrc: "src/app/sw.ts",
+  disable: process.env.NODE_ENV === "development",
+  register: true,
+  skipWaiting: true,
+  scope: ".",
+  start_url: ".",
+  fallbacks: {
+    document: "/_offline",
+  },
+});
+
 
 const nextConfig: NextConfig = {
   output: 'export',
+  distDir: 'out2',
   /* config options here */
   typescript: {
     ignoreBuildErrors: true,
@@ -63,32 +78,8 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-   webpack: (config, { isServer, dev }) => {
-    if (!isServer && !dev) {
-      config.plugins.push(
-        new WorkboxPlugin.InjectManifest({
-          swSrc: './src/app/sw.ts',
-          swDest: '../public/sw.js',
-          // Ensure the service worker is not precaching route files,
-          // as we want to handle them with runtime caching.
-          // Add pdf.worker.mjs to the precache manifest.
-          include: [
-            ({asset}) => asset.name.endsWith('.mjs'),
-          ],
-          exclude: [
-            /\.map$/, 
-            /manifest\.json$/, 
-            /next-assets-manifest\.json$/, 
-            /_next\/static\/chunks\/app\/_next\/static\//,
-            /\/_next\/static\/css\//
-          ],
-        })
-      );
-    }
-    return config;
-  },
 };
 
-export default nextConfig;
+export default withPWA(nextConfig);
 
     

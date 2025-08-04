@@ -3,7 +3,7 @@
 
 import { precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
-import { StaleWhileRevalidate, CacheFirst } from 'workbox-strategies';
+import { StaleWhileRevalidate, CacheFirst, NetworkFirst } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 
 declare const self: ServiceWorkerGlobalScope;
@@ -12,16 +12,26 @@ declare const self: ServiceWorkerGlobalScope;
 // Their URLs are injected into the manifest file during the build.
 precacheAndRoute(self.__WB_MANIFEST);
 
+// Explicitly cache essential files for offline functionality
+precacheAndRoute([
+  { url: '/', revision: null },
+  { url: '/index.html', revision: null },
+  { url: '/manifest.json', revision: null },
+  { url: '/favicon.ico', revision: null },
+  { url: '/icons/icon-192x192.png', revision: null },
+  { url: '/icons/icon-512x512.png', revision: null },
+]);
+
 // Runtime caching for Google Fonts
 registerRoute(
-  /^https://fonts\.googleapis\.com\/.*/i,
+  new RegExp('^https://fonts\.googleapis\.com/.*', 'i'),
   new StaleWhileRevalidate({
     cacheName: 'google-fonts-stylesheets',
   })
 );
 
 registerRoute(
-  /^https:\/\/fonts\.gstatic\.com\/.*/i,
+  new RegExp('^https://fonts\.gstatic\.com/.*', 'i'),
   new StaleWhileRevalidate({
     cacheName: 'google-fonts-webfonts',
     plugins: [
@@ -36,7 +46,7 @@ registerRoute(
 
 // Cache images with a CacheFirst strategy
 registerRoute(
-  /\.(?:png|gif|jpg|jpeg|svg|ico)$/,
+  new RegExp('\.(?:png|gif|jpg|jpeg|svg|ico)$'),
   new CacheFirst({
     cacheName: 'images',
     plugins: [
@@ -48,17 +58,25 @@ registerRoute(
   })
 );
 
-// Cache pages with a StaleWhileRevalidate strategy
-// This will serve pages from the cache first for speed,
-// and update them in the background.
+// Cache pages with a NetworkFirst strategy
+// This will prioritize getting the latest version of the page from the network.
+// If the network is unavailable, it will fall back to the cached version.
 registerRoute(
   ({ request }) => request.mode === 'navigate',
-  new StaleWhileRevalidate({
+  new NetworkFirst({
     cacheName: 'pages',
     plugins: [
       new ExpirationPlugin({
         maxEntries: 50,
       }),
     ],
+  })
+);
+
+// Cache other assets with a StaleWhileRevalidate strategy
+registerRoute(
+  new RegExp('\.(?:js|css|json)$'),
+  new StaleWhileRevalidate({
+    cacheName: 'static-resources',
   })
 );
